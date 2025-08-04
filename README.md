@@ -62,37 +62,20 @@ dataset
 We build MER-UniBench, which encompasses typical MER tasks with tailored metrics. This benchmark can offer comprehensive evaluation results for MLLM-based emotion understanding.
 
 ```bash
-dataset # Available at: https://pan.baidu.com/s/1kbfs5pG_hAri0QwvQl-Ecg?pwd=b9vn
-├── mer2023-dataset-process 
-├── mer2024-dataset-process 
-├── sims-dataset 
-├── simsv2-dataset 
-├── cmumosi-dataset 
-├── cmumosei-dataset 
-├── iemocap-dataset 
-├── meld-dataset 
+## MER-UniBench includes 9 datasets
+dataset 
+# Available at: https://pan.baidu.com/s/1kbfs5pG_hAri0QwvQl-Ecg?pwd=b9vn
+├── mer2023-dataset-process
+├── mer2024-dataset-process
+├── sims-process
+├── simsv2-process
+├── cmumosi-process
+├── cmumosei-process
+├── iemocap-process
+├── meld-process
+# Available at: https://pan.baidu.com/s/1nBTw_ujSTQPAMyIs5Qv8Zw?pwd=k8tj
+├── ovmerdplus-process
 ```
-
-OV-MERD+ will be released at the end of the MER2025 challenge, while its original version OV-MERD is already available at: https://huggingface.co/datasets/MERChallenge/MER2025
-```bash
-dataset
-├── mer2025-dataset
-|   ├── video # all training data, including 132,171 samples
-|   ├── audio # pre-extracted audio
-|   ├── openface_face # # pre-extracted face files
-|   ├── subtitle_chieng.csv # pre-extracted subtitle content
-|   ├── track2_train_ovmerd.csv # OV-MERD Dataset (OV labels)
-|   ├── track3_train_ovmerd.csv # OV-MERD Dataset (Description)
-```
-<details open><summary>💡 OV-MERD Paper ✨. </summary><p>
-<!--  may -->
-
-> [**OV-MER: Towards Open-Vocabulary Multimodal Emotion Recognition**](https://arxiv.org/abs/2410.01495) <br>
-> Zheng Lian, Haiyang Sun, Licai Sun, Haoyu Chen, Lan Chen, Hao Gu, Zhuofan Wen, Shun Chen, Siyuan Zhang, Hailiang Yao, Bin Liu, Rui Liu, Shan Liang, Ya Li, Jiangyan Yi, Jianhua Tao <br>
-
-
-</p></details>
-
 
 ## 🗝️ Solution
 
@@ -125,7 +108,7 @@ If you find AffectGPT useful for your research and applications, please cite usi
 @article{lian2025affectgpt,
   title={AffectGPT: A New Dataset, Model, and Benchmark for Emotion Understanding with Multimodal Large Language Models},
   author={Lian, Zheng and Chen, Haoyu and Chen, Lan and Sun, Haiyang and Sun, Licai and Ren, Yong and Cheng, Zebang and Liu, Bin and Liu, Rui and Peng, Xiaojiang and others},
-  journal={ICML (Oral)},
+  journal={ICML (Oral, Top 1%)},
   year={2025}
 }
 
