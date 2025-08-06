@@ -101,7 +101,10 @@ dataset
 |   ├── subtitle_chieng.csv # pre-extracted subtitle content
 |   ├── track2_train_mercaptionplus.csv # MER-Caption+ Dataset (OV labels)
 |   ├── track3_train_mercaptionplus.csv # MER-Caption+ Dataset (Description)
-# MER-UniBench available at: https://pan.baidu.com/s/1kbfs5pG_hAri0QwvQl-Ecg?pwd=b9vn
+
+# MER-UniBench 
+# Available at: https://pan.baidu.com/s/1kbfs5pG_hAri0QwvQl-Ecg?pwd=b9vn
+# Alternative link: https://1024terabox.com/s/1AE7uAU3Ib8aRBSyF1TMpow
 ├── mer2023-dataset-process
 ├── mer2024-dataset-process
 ├── sims-process
@@ -110,7 +113,8 @@ dataset
 ├── cmumosei-process
 ├── iemocap-process
 ├── meld-process
-# MER-UniBench available at: https://pan.baidu.com/s/1nBTw_ujSTQPAMyIs5Qv8Zw?pwd=k8tj
+# Available at: https://pan.baidu.com/s/1nBTw_ujSTQPAMyIs5Qv8Zw?pwd=k8tj
+# Alternative link: https://1024terabox.com/s/1O130fc81FVsGGsrjLuHyDA
 ├── ovmerdplus-process
 
 AffectGPT
