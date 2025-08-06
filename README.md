@@ -65,6 +65,7 @@ We build MER-UniBench, which encompasses typical MER tasks with tailored metrics
 ## MER-UniBench includes 9 datasets
 dataset 
 # Available at: https://pan.baidu.com/s/1kbfs5pG_hAri0QwvQl-Ecg?pwd=b9vn
+# Alternative link: https://1024terabox.com/s/1AE7uAU3Ib8aRBSyF1TMpow
 ├── mer2023-dataset-process
 ├── mer2024-dataset-process
 ├── sims-process
@@ -74,6 +75,7 @@ dataset
 ├── iemocap-process
 ├── meld-process
 # Available at: https://pan.baidu.com/s/1nBTw_ujSTQPAMyIs5Qv8Zw?pwd=k8tj
+# Alternative link: https://1024terabox.com/s/1O130fc81FVsGGsrjLuHyDA
 ├── ovmerdplus-process
 ```
 
