@@ -11,34 +11,35 @@ RESULT_ROOT = os.path.join(AFFECTGPT_ROOT, 'output/results')
 ## 所有模型的存储路径
 #######################
 PATH_TO_LLM = {
-    'Qwen25': 'models/Qwen2.5-7B-Instruct',
+    'Qwen25': '/home/project/Dataset/Emotion/tools/transformer/LLM/Qwen2.5-3B-Instruct'
+    # 'Qwen25': 'models/Qwen2.5-7B-Instruct',
 }
 
 PATH_TO_VISUAL = {
-    'CLIP_VIT_LARGE': 'models/clip-vit-large-patch14',
+    'CLIP_VIT_LARGE': '/home/project/Dataset/Emotion/tools/transformer/visual/clip-vit-large-patch14',
 
 }
 
 PATH_TO_AUDIO = {
-    'HUBERT_LARGE':  'models/chinese-hubert-large',
+    'HUBERT_LARGE':  '/home/project/Dataset/Emotion/tools/transformer/chinese-hubert-large',
 }
 
 #######################
 ## 所有数据集的存储路径
 #######################
 DATA_DIR = {
-    'MER2025OV':      '../dataset/mer2025-dataset',
-    'MERCaptionPlus': '../dataset/mer2025-dataset',
-    'OVMERD':         '../dataset/mer2025-dataset',
-    'MER2023':        '../dataset/mer2023-dataset-process',
-    'MER2024':        '../dataset/mer2024-dataset-process',
-    'IEMOCAPFour':    '../dataset/iemocap-process',
-    'CMUMOSI':        '../dataset/cmumosi-process',
-    'CMUMOSEI':       '../dataset/cmumosei-process', 
-    'SIMS':           '../dataset/sims-process',
-    'SIMSv2':         '../dataset/simsv2-process',
-    'MELD':           '../dataset/meld-process', 
-    'OVMERDPlus':     '../dataset/ovmerdplus-process',
+    'MER2025OV':      '/home/project/Dataset/Emotion/MER2025/dataset/mer2025-dataset',
+    'MERCaptionPlus': '/home/project/Dataset/Emotion/MER2025/dataset/mer2025-dataset',
+    'OVMERD':         '/home/project/Dataset/Emotion/MER2025/dataset/mer2025-dataset',
+    'MER2023':        '/home/project/Dataset/Emotion/MER2025/dataset/mer2023-dataset-process',
+    'MER2024':        '/home/project/Dataset/Emotion/MER2025/dataset/mer2024-dataset-process',
+    'IEMOCAPFour':    '/home/project/Dataset/Emotion/MER2025/dataset/iemocap-process',
+    'CMUMOSI':        '/home/project/Dataset/Emotion/MER2025/dataset/cmumosi-process',
+    'CMUMOSEI':       '/home/project/Dataset/Emotion/MER2025/dataset/cmumosei-process', 
+    'SIMS':           '/home/project/Dataset/Emotion/MER2025/dataset/sims-process',
+    'SIMSv2':         '/home/project/Dataset/Emotion/MER2025/dataset/simsv2-process',
+    'MELD':           '/home/project/Dataset/Emotion/MER2025/dataset/meld-process', 
+    'OVMERDPlus':     '/home/project/Dataset/Emotion/MER2025/dataset/ovmerdplus-process',
 }
 
 PATH_TO_RAW_AUDIO = {
