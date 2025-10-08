@@ -1,4 +1,4 @@
-<p align="center">
+ <p align="center">
     <img src="OV-MER/assert/logo.png" width="150" style="margin-bottom: 0.2;"/> <img src="AffectGPT/assert/logo.png" width="150" style="margin-bottom: 0.2;"/> 
 <p>
 
