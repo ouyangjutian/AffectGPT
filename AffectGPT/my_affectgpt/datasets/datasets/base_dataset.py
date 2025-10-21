@@ -57,6 +57,13 @@ class BaseDataset():
 
         ## 控制视频采样的帧数
         self.n_frms = model_cfg.vis_processor.train.n_frms
+        
+        # Frame采样配置 - 可以通过dataset_cfg覆盖
+        self.frame_n_frms = getattr(dataset_cfg, 'frame_n_frms', self.n_frms)  # Frame帧数，默认与n_frms相同
+        self.frame_sampling = getattr(dataset_cfg, 'frame_sampling', 'uniform')  # Frame采样策略，默认uniform
+        print(f'====== Frame Sampling Config ======')
+        print(f'Frame frames: {self.frame_n_frms}, Frame sampling: {self.frame_sampling}')
+        print(f'Face frames: {self.n_frms}, Face sampling: uniform')
 
         # 这里token的设置和 affectgpt.py 中的一致 (所以这部分调用改成全局调用了)
         self.tokenizer = load_tokenizer_from_LLM(model_cfg.llama_model)
@@ -185,18 +192,22 @@ class BaseDataset():
 
         sample_data = {}
 
-        # step1: read (raw_frame, frame)
+        # step1: read (raw_frame, frame) - 可配置的Frame采样策略
         frame, raw_frame = None, None
         if video_path is not None and 'frame' in self.needed_data:
+            # 使用配置参数控制Frame采样策略和帧数
+            frame_n_frms = getattr(self, 'frame_n_frms', self.n_frms)  # 默认使用n_frms
+            frame_sampling = getattr(self, 'frame_sampling', 'uniform')  # 默认使用uniform采样
+            
             raw_frame, msg = load_video(
                 video_path=video_path,
-                n_frms = self.n_frms,
+                n_frms = frame_n_frms,
                 height = 224,
                 width  = 224,
-                sampling ="uniform",
+                sampling = frame_sampling,
                 return_msg = True
             )
-            frame = self.vis_processor.transform(raw_frame) # [3, 8, 224, 224] # 建议可视化，看看这部分数据扩增是否合适
+            frame = self.vis_processor.transform(raw_frame) # [3, frame_n_frms, 224, 224]
         sample_data['frame'] = frame
         sample_data['raw_frame'] = raw_frame
         # print (sample_data)

@@ -304,7 +304,12 @@ def func_return_scores_one(modelname=None, dataset_candidates='affectgpt'):
 
 
 if __name__ == "__main__":
-
+    """
+        原有checkpoint:                                 emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz
+        Qwen2.5-3B:(multi, face, audio, text):          emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz_new
+        Qwen2.5-3B:(multi, frame, audio, text):         mercaptionplus_outputhybird_bestsetup_bestfusion_frame_lz
+        Qwen2.5-3B:(multi, face, frame, audio, text):   emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz_face_frame
+    """
     ## step1：测试新模型下的结果
     for modelname in [
                     'emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz',

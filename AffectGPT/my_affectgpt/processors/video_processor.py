@@ -41,6 +41,11 @@ def load_video(video_path, n_frms=MAX_INT, height=-1, width=-1, sampling="unifor
         indices_h = sorted(rnd.sample(range(vlen // 2), n_frms_update // 2))
         indices_t = sorted(rnd.sample(range(vlen // 2, vlen), n_frms_update // 2))
         indices = indices_h + indices_t
+    elif sampling == "emotion_peak": # 情感峰值帧采样 - 选择中间帧作为峰值帧
+        # 选择视频中间位置的帧作为情感峰值帧
+        peak_index = vlen // 2
+        indices = [peak_index]
+        n_frms_update = 1  # 强制设置为1帧
     else:
         raise NotImplementedError
 

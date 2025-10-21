@@ -52,8 +52,17 @@ datasets:
 
   mercaptionplus:
     data_type: video
-    face_or_frame: 'multiframe_audio_frame_text' # 默认是读取 frame or face
+    face_or_frame: 'multiface_audio_face_text' # 默认是读取 frame or face
     label_type: 'hybird' # 模型是预测 description 还是 label 呢？
+    
+    # Frame采样配置 - 可选择均匀采样或峰值帧采样
+    frame_n_frms: 8        # Frame帧数: 8(均匀采样) 或 1(峰值帧)
+    frame_sampling: 'uniform'  # Frame采样策略: 'uniform'(均匀采样) 或 'emotion_peak'(峰值帧)
+    
+    # 使用示例:
+    # 1. 均匀采样8帧: frame_n_frms: 8, frame_sampling: 'uniform'
+    # 2. 峰值帧1帧:   frame_n_frms: 1, frame_sampling: 'emotion_peak'
+    # Face始终保持8帧uniform采样不变
 
 
 # 1. 采用大batch + 三个 80g gpu
@@ -68,17 +77,12 @@ run:
   warmup_lr: 1e-6
   weight_decay: 0.05
 
-  max_epoch: 100 # 20 -> 100 大概可以让每个样本跑2-3次的样子，因为 EMER-Coarse 大约有 11.5k samples => 大约 26h 就可以跑完，速度还ok的
+  max_epoch: 60 # 20 -> 100 大概可以让每个样本跑2-3次的样子，因为 EMER-Coarse 大约有 11.5k samples => 大约 26h 就可以跑完，速度还ok的
   iters_per_epoch: 5000 # 1000
   warmup_steps: 5000    # 1000
 
-# train
-  # batch_size_train: 2 # 3 # 这是单一gpu的batch_size；实际batch_size = gpu_num * batch_size_train
-  # batch_size_eval:  2 # 3 # 这是单一gpu的batch_size；实际batch_size = gpu_num * batch_size_train
-
-# inference
-  batch_size_train: 3 # 3 # 这是单一gpu的batch_size；实际batch_size = gpu_num * batch_size_train
-  batch_size_eval:  3 # 3 # 这是单一gpu的batch_size；实际batch_size = gpu_num * batch_size_train
+  batch_size_train: 2 # 3 # 这是单一gpu的batch_size；实际batch_size = gpu_num * batch_size_train
+  batch_size_eval:  2 # 3 # 这是单一gpu的batch_size；实际batch_size = gpu_num * batch_size_train
 
   seed: 42
   num_workers: 4
@@ -117,6 +121,15 @@ inference:
   # NOTE: 为了避免出错，设置为与 emercoarse 或者 mer2023 一致就可以
   face_or_frame: 'xxx'
   ######################################################
+  
+  # Frame采样配置 - 推理时的Frame采样策略
+  frame_n_frms: 8        # Frame帧数: 8(均匀采样) 或 1(峰值帧)
+  frame_sampling: 'uniform'  # Frame采样策略: 'uniform'(均匀采样) 或 'emotion_peak'(峰值帧)
+  
+  # 推理时Frame采样配置说明:
+  # 1. 均匀采样8帧: frame_n_frms: 8, frame_sampling: 'uniform'
+  # 2. 峰值帧1帧:   frame_n_frms: 1, frame_sampling: 'emotion_peak'
+  # 注意: Face始终保持8帧uniform采样不变
 
   base_root: 'output/results'
   

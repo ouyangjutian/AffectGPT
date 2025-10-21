@@ -207,6 +207,13 @@ if __name__ == "__main__":
             if img_processor_cfg is not None:
                 dataset_cls.img_processor = registry.get_processor_class(img_processor_cfg.train.name).from_config(img_processor_cfg.train)
             dataset_cls.n_frms = model_cfg.vis_processor.train.n_frms
+            
+            # 添加Frame采样配置支持 - 从inference_cfg中读取
+            dataset_cls.frame_n_frms = getattr(inference_cfg, 'frame_n_frms', dataset_cls.n_frms)  # Frame帧数，默认与n_frms相同
+            dataset_cls.frame_sampling = getattr(inference_cfg, 'frame_sampling', 'uniform')  # Frame采样策略，默认uniform
+            print(f'====== Inference Frame Sampling Config ======')
+            print(f'Frame frames: {dataset_cls.frame_n_frms}, Frame sampling: {dataset_cls.frame_sampling}')
+            print(f'Face frames: {dataset_cls.n_frms}, Face sampling: uniform')
 
 
             ## 读取每个数据集的内容
