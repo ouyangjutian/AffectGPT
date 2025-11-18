@@ -14,6 +14,7 @@ from my_affectgpt.processors import Blip2ImageEvalProcessor
 from my_affectgpt.processors.video_processor import ToTHWC, ToUint8, load_video, load_face
 from my_affectgpt.models.ImageBind.data import load_audio, transform_audio
 from my_affectgpt.datasets.builders.image_text_pair_builder import *
+from my_affectgpt.models.au_agent import AUAgent
 import config
 
 class SeparatorStyle(Enum):
@@ -128,7 +129,21 @@ class Chat:
         self.num_multi_query_token = model_cfg.num_multi_query_token
         self.num_image_query_token = model_cfg.num_image_query_token
         self.num_au_query_token = getattr(model_cfg, 'num_au_query_token', 8)  # AU query token数量
-
+        
+        # 初始化AU Agent（如果配置中启用）
+        self.use_au_agent = getattr(model_cfg, 'use_au_agent', False)
+        if self.use_au_agent:
+            au_base_model = getattr(model_cfg, 'au_agent_base_model', '/home/project/Dataset/Emotion/tools/transformer/LLM/Qwen2.5-7B-Instruct')
+            au_lora_weights = getattr(model_cfg, 'au_agent_lora_weights', '/home/project/AffectGPT/AffectGPT/output/au_agent_qwen2.5_7b_lora')
+            print(f"[Chat] Loading AU Agent from {au_lora_weights}")
+            self.au_agent = AUAgent(
+                base_model_path=au_base_model,
+                lora_weights_path=au_lora_weights,
+                device=device,
+                use_lora=True
+            )
+        else:
+            self.au_agent = None
 
     def to_token_ids(self, text, max_length):
         input_ids = self.tokenizer(text,
@@ -200,12 +215,61 @@ class Chat:
 
     def postprocess_au(self, sample_data):
         """AU模态处理"""
-        if 'au' not in sample_data or sample_data['au'] is None:
+        if sample_data is None or 'au' not in sample_data or sample_data['au'] is None:
             return None, None
         
-        au = sample_data['au'].unsqueeze(0).to(self.device)  # [1, T, 512]
-        au_hiddens, au_llms = self.model.encode_au_merge(au, is_preextracted=True)
-        return au_hiddens, au_llms
+        # 如果使用AU Agent，生成自然语言描述
+        if self.use_au_agent and self.au_agent is not None:
+            # 解析sample_data['au']结构
+            au_values = None
+            au_description = None
+            
+            if isinstance(sample_data['au'], dict):
+                # MER-Factory格式：{'au_values': {...}, 'au_description': "..."}
+                if 'au_values' in sample_data['au'] or 'active_aus' in sample_data['au']:
+                    au_values = sample_data['au'].get('au_values') or sample_data['au'].get('active_aus')
+                    au_description = sample_data['au'].get('au_description', None)
+                else:
+                    # 直接是AU值字典：{'AU01_r': 0.98, ...}
+                    au_values = sample_data['au']
+            elif hasattr(sample_data['au'], 'values'):
+                au_values = sample_data['au']['values']
+                au_description = sample_data['au'].get('description', None)
+            else:
+                # 回退到预提取特征模式
+                au = sample_data['au'].unsqueeze(0).to(self.device)  # [1, T, 512]
+                au_hiddens, au_llms = self.model.encode_au_merge(au, is_preextracted=True)
+                return au_hiddens, au_llms
+            
+            # 使用AU Agent生成描述
+            try:
+                facial_description = self.au_agent.generate_description(
+                    au_values=au_values,
+                    au_description=au_description,  # 如果MER-Factory提供了则使用
+                    temperature=0.7
+                )
+                
+                # 将描述转换为text tokens（类似text模态处理）
+                au_text = f"<au>\n{facial_description}\n</au>"
+                au_llms = self.to_token_ids(au_text, max_length=512).to(self.device)
+                
+                # AU作为text处理，不需要特征向量
+                return None, au_llms
+                
+            except Exception as e:
+                print(f"⚠️ AU Agent生成失败: {e}，回退到预提取特征模式")
+                # 回退
+                if torch.is_tensor(sample_data['au']):
+                    au = sample_data['au'].unsqueeze(0).to(self.device)
+                    au_hiddens, au_llms = self.model.encode_au_merge(au, is_preextracted=True)
+                    return au_hiddens, au_llms
+                else:
+                    return None, None
+        else:
+            # 原有的预提取特征模式
+            au = sample_data['au'].unsqueeze(0).to(self.device)  # [1, T, 512]
+            au_hiddens, au_llms = self.model.encode_au_merge(au, is_preextracted=True)
+            return au_hiddens, au_llms
 
     
     # 整体过程就是在模拟inference过程 => 尝试完全按照 training 的方式进行读写
