@@ -211,6 +211,31 @@ if __name__ == "__main__":
             # 添加Frame采样配置支持 - 从inference_cfg中读取
             dataset_cls.frame_n_frms = getattr(inference_cfg, 'frame_n_frms', dataset_cls.n_frms)  # Frame帧数，默认与n_frms相同
             dataset_cls.frame_sampling = getattr(inference_cfg, 'frame_sampling', 'uniform')  # Frame采样策略，默认uniform
+            
+            # 推理模式配置 - 支持AU实时处理
+            dataset_cls.use_realtime_extraction = False  # 不使用分布式实时提取
+            dataset_cls.use_preextracted_features = False  # 推理默认使用实时处理
+            
+            # 检测是否需要AU模态（注意：不能用'au' in string，会匹配到audio）
+            # 使用单词分割来准确检测AU模态
+            tokens = face_or_frame.lower().replace('_', ' ').split()
+            use_au = 'au' in tokens
+            if use_au:
+                # AU实时处理需要MER-Factory输出路径
+                dataset_cls.mer_factory_output = getattr(inference_cfg, 'mer_factory_output', None)
+                # 初始化CLIP模型属性（推理时使用类级别属性，需要手动初始化）
+                dataset_cls._clip_model = None
+                dataset_cls._clip_preprocess = None
+                if not dataset_cls.mer_factory_output:
+                    print(f'⚠️ [INFERENCE] AU模态需要mer_factory_output配置，将回退到预提取模式')
+                    # 回退到预提取模式
+                    dataset_cls.use_preextracted_features = True
+                    dataset_cls.preextracted_root = './preextracted_features/' + dataset.lower()
+                    dataset_cls.visual_encoder = 'CLIP_VIT_LARGE'
+                    dataset_cls.acoustic_encoder = 'HUBERT_LARGE'
+                    dataset_cls.clips_per_video = 8
+                    print(f'[INFERENCE] 回退到预提取模式: {dataset_cls.preextracted_root}')
+            
             print(f'====== Inference Frame Sampling Config ======')
             print(f'Frame frames: {dataset_cls.frame_n_frms}, Frame sampling: {dataset_cls.frame_sampling}')
             print(f'Face frames: {dataset_cls.n_frms}, Face sampling: uniform')
@@ -241,15 +266,21 @@ if __name__ == "__main__":
                 if hasattr(dataset_cls, '_get_audio_path'): audio_path = dataset_cls._get_audio_path(sample)
                 if hasattr(dataset_cls, '_get_face_path'):  face_npy   = dataset_cls._get_face_path(sample)
                 if hasattr(dataset_cls, '_get_image_path'): image_path = dataset_cls._get_image_path(sample)
-                sample_data = dataset_cls.read_frame_face_audio_text(video_path, face_npy, audio_path, image_path)
+                sample_data = dataset_cls.read_frame_face_audio_text(video_path, face_npy, audio_path, image_path, sample_name=name)
+                
+                # 检查sample_data是否有效
+                if sample_data is None:
+                    print(f"⚠️ 样本数据加载失败，跳过: {name}")
+                    continue
                 # print (sample_data['face'].shape)
 
                 # => img_list
-                audio_llms, frame_llms, face_llms, image_llms, multi_llms = None, None, None, None, None
+                audio_llms, frame_llms, face_llms, image_llms, multi_llms, au_llms = None, None, None, None, None, None
                 audio_hiddens, audio_llms = chat.postprocess_audio(sample_data)  
                 frame_hiddens, frame_llms = chat.postprocess_frame(sample_data)
                 face_hiddens,  face_llms  = chat.postprocess_face(sample_data)
                 _,             image_llms = chat.postprocess_image(sample_data)
+                _,             au_llms    = chat.postprocess_au(sample_data)     # 添加AU处理
                 if face_or_frame.startswith('multiface'):
                     _, multi_llms = chat.postprocess_multi(face_hiddens, audio_hiddens)
                 elif face_or_frame.startswith('multiframe'):
@@ -261,6 +292,7 @@ if __name__ == "__main__":
                 img_list['face']  = face_llms
                 img_list['image'] = image_llms
                 img_list['multi'] = multi_llms
+                img_list['au']    = au_llms    # 添加AU到img_list
 
                 # get prompt (if use zeroshot => ov labels; else => dataset specific question)
                 user_message = get_user_message(dataset_cls, args.zeroshot, args.outside_user_message)

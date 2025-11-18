@@ -37,7 +37,9 @@ class MERCaptionPlus_Dataset(BaseDataset):
             print (self.needed_data) # ['audio', 'frame', 'face']
         
         ################# 直接手动指定所有信息的存储路径 #################
-        ov_path = os.path.join(config.DATA_DIR[self.dataset], 'track2_train_mercaptionplus.csv')
+        # ov_path = os.path.join(config.DATA_DIR[self.dataset], 'track2_train_mercaptionplus.csv')
+        # 用5000个视频test来验证au是否有效
+        ov_path = os.path.join(config.DATA_DIR[self.dataset], 'track2_train_mercaptionplus_test.csv')
         name2openset = {}
         df = pd.read_csv(ov_path)
         for _, row in df.iterrows():

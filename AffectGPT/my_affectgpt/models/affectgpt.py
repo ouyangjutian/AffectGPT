@@ -51,12 +51,16 @@ class AffectGPT(Blip2Base):
         num_audio_query_token,
         num_multi_query_token,
         num_image_query_token,
+        num_au_query_token,        # 新增：AU query token数量
         frozen_multi_Qformer,
         frozen_multi_llama_proj,
+        frozen_au_proj,            # 新增：AU投影层冻结参数
         multi_fusion_type,
         video_fusion_type,
         audio_fusion_type,
         image_fusion_type,
+        au_fusion_type,            # 新增：AU融合类型
+        skip_encoders=False,  # 新增参数：是否跳过编码器加载
     ):
         super().__init__()
 
@@ -77,11 +81,13 @@ class AffectGPT(Blip2Base):
         DEFAULT_FRAME_PATCH_TOKEN = config.DEFAULT_FRAME_PATCH_TOKEN
         DEFAULT_FACE_PATCH_TOKEN  = config.DEFAULT_FACE_PATCH_TOKEN
         DEFAULT_MULTI_PATCH_TOKEN = config.DEFAULT_MULTI_PATCH_TOKEN
+        DEFAULT_AU_PATCH_TOKEN    = config.DEFAULT_AU_PATCH_TOKEN
         self.IMAGE_PATCH_TOKEN_ID = self.llama_tokenizer.get_vocab()[DEFAULT_IMAGE_PATCH_TOKEN]
         self.AUDIO_PATCH_TOKEN_ID = self.llama_tokenizer.get_vocab()[DEFAULT_AUDIO_PATCH_TOKEN]
         self.FRAME_PATCH_TOKEN_ID = self.llama_tokenizer.get_vocab()[DEFAULT_FRAME_PATCH_TOKEN]
         self.FACE_PATCH_TOKEN_ID  = self.llama_tokenizer.get_vocab()[DEFAULT_FACE_PATCH_TOKEN]
         self.MULTI_PATCH_TOKEN_ID = self.llama_tokenizer.get_vocab()[DEFAULT_MULTI_PATCH_TOKEN]
+        self.AU_PATCH_TOKEN_ID    = self.llama_tokenizer.get_vocab()[DEFAULT_AU_PATCH_TOKEN]
 
         if llama_model_name in ['Baichuan2']:
             self.llama_model = AutoModelForCausalLM.from_pretrained(
@@ -130,8 +136,18 @@ class AffectGPT(Blip2Base):
         print('====== Loading Image Encoder ======')
         self.image_fusion_type = image_fusion_type
         self.num_image_query_token = num_image_query_token
-        self.visual_encoder = registry.get_visual_encoder_class(visual_encoder_name)()
-        self.image_llama_proj = nn.Linear(self.visual_encoder.hidden_size, 
+        self.skip_encoders = skip_encoders
+        
+        if not skip_encoders:
+            self.visual_encoder = registry.get_visual_encoder_class(visual_encoder_name)()
+            visual_hidden_size = self.visual_encoder.hidden_size
+        else:
+            print('🎯 Skipping visual encoder loading (preextracted mode)')
+            self.visual_encoder = None
+            # 从配置中获取预提取特征维度，或使用默认值
+            visual_hidden_size = getattr(self, 'preextracted_visual_dim', 768)
+            
+        self.image_llama_proj = nn.Linear(visual_hidden_size, 
                                         self.llama_model.config.hidden_size)
         
         print('====== Loading Video Q-Former ======')
@@ -140,9 +156,9 @@ class AffectGPT(Blip2Base):
 
         ## case1: qformer
         if self.video_fusion_type == 'qformer':
-            self.video_frame_position_embedding = nn.Embedding(32, self.visual_encoder.hidden_size) # [32, featdim]
+            self.video_frame_position_embedding = nn.Embedding(32, visual_hidden_size) # [32, featdim]
             self.video_Qformer, self.video_query_tokens = self.init_video_Qformer(num_query_token=num_video_query_token,
-                                                                                vision_width=self.visual_encoder.hidden_size, 
+                                                                                vision_width=visual_hidden_size, 
                                                                                 num_hidden_layers=2)
             self.video_Qformer.cls = None
             self.video_Qformer.bert.embeddings.word_embeddings = None
@@ -168,11 +184,11 @@ class AffectGPT(Blip2Base):
             video_hidden_size = self.video_Qformer.config.hidden_size
         ## case2: mean
         elif self.video_fusion_type == 'mean':
-            video_hidden_size = self.visual_encoder.hidden_size
+            video_hidden_size = visual_hidden_size
         ## case3: attention
         elif self.video_fusion_type == 'attention':
-            self.video_attention_mlp = nn.Linear(self.visual_encoder.hidden_size, 1)
-            video_hidden_size = self.visual_encoder.hidden_size
+            self.video_attention_mlp = nn.Linear(visual_hidden_size, 1)
+            video_hidden_size = visual_hidden_size
 
 
         print(f'====== Loading Video LLAMA proj ======')
@@ -190,16 +206,23 @@ class AffectGPT(Blip2Base):
 
 
         print(f'====== Loading Audio Encoder ======')
-        self.acoustic_encoder = registry.get_acoustic_encoder_class(acoustic_encoder_name)()
+        if not skip_encoders:
+            self.acoustic_encoder = registry.get_acoustic_encoder_class(acoustic_encoder_name)()
+            acoustic_hidden_size = self.acoustic_encoder.hidden_size
+        else:
+            print('🎯 Skipping acoustic encoder loading (preextracted mode)')
+            self.acoustic_encoder = None
+            # 从配置中获取预提取特征维度，或使用默认值
+            acoustic_hidden_size = getattr(self, 'preextracted_acoustic_dim', 1024)
 
         print('====== Loading Audio Q-Former: ======')
         self.audio_fusion_type = audio_fusion_type
         self.num_audio_query_token = num_audio_query_token
 
         if self.audio_fusion_type == 'qformer':
-            self.audio_position_embedding = nn.Embedding(8, self.acoustic_encoder.hidden_size)
+            self.audio_position_embedding = nn.Embedding(8, acoustic_hidden_size)
             self.audio_Qformer, self.audio_query_tokens = self.init_video_Qformer(num_query_token=self.num_audio_query_token,
-                                                                                vision_width=self.acoustic_encoder.hidden_size, 
+                                                                                vision_width=acoustic_hidden_size, 
                                                                                 num_hidden_layers=2)
             self.audio_Qformer.cls = None
             self.audio_Qformer.bert.embeddings.word_embeddings = None
@@ -223,10 +246,10 @@ class AffectGPT(Blip2Base):
                 print('trainable: audio_Qformer')
             audio_hidden_size = self.audio_Qformer.config.hidden_size
         elif self.audio_fusion_type == 'mean':
-            audio_hidden_size = self.acoustic_encoder.hidden_size
+            audio_hidden_size = acoustic_hidden_size
         elif self.audio_fusion_type == 'attention':
-            self.audio_attention_mlp = nn.Linear(self.acoustic_encoder.hidden_size, 1)
-            audio_hidden_size = self.acoustic_encoder.hidden_size
+            self.audio_attention_mlp = nn.Linear(acoustic_hidden_size, 1)
+            audio_hidden_size = acoustic_hidden_size
 
         print('====== Loading audio_llama_proj: ======')
         self.audio_llama_proj = nn.Linear(audio_hidden_size, 
@@ -240,14 +263,54 @@ class AffectGPT(Blip2Base):
                 param.requires_grad = True
             print('trainable: Audio Q-Former LLaMA proj')
 
-
+        # ====== AU模态处理 ======
+        print('====== Loading AU Q-Former: ======')
+        self.num_au_query_token = num_au_query_token
+        self.au_fusion_type = au_fusion_type
+        
+        # AU特征维度保持CLIP ViT-B/32原始输出512维
+        au_hidden_size = 512
+        
+        if self.au_fusion_type == 'mean':
+            # 简单平均融合
+            pass  # 不需要额外的层
+        elif self.au_fusion_type == 'attention':
+            # 注意力融合
+            self.au_attention_mlp = nn.Linear(au_hidden_size, 1)
+        elif self.au_fusion_type == 'qformer':
+            # Q-Former融合 (更复杂，可选)
+            encoder_config = BertConfig.from_pretrained("models/bert-base-uncased")
+            self.au_position_embedding = nn.Embedding(32, au_hidden_size)  # 最多支持32帧
+            self.au_Qformer, self.au_query_tokens = self.init_video_Qformer(
+                num_query_token=self.num_au_query_token,
+                vision_width=au_hidden_size,
+                num_hidden_layers=2
+            )
+            self.au_Qformer.cls = None
+            self.au_Qformer.bert.embeddings.word_embeddings = None
+            self.au_Qformer.bert.embeddings.position_embeddings = None
+            for layer in self.au_Qformer.bert.encoder.layer:
+                layer.output = None
+                layer.intermediate = None
+            au_hidden_size = self.au_Qformer.config.hidden_size
+        
+        print('====== Loading au_llama_proj: ======')
+        self.au_llama_proj = nn.Linear(au_hidden_size, self.llama_model.config.hidden_size)
+        if frozen_au_proj:
+            for name, param in self.au_llama_proj.named_parameters():
+                param.requires_grad = False
+            print('freeze: AU LLaMA proj')
+        else:
+            for name, param in self.au_llama_proj.named_parameters():
+                param.requires_grad = True
+            print('trainable: AU LLaMA proj')
 
         print('====== Loading Multi Q-Former (pre-fusion: this part is put in front of LLMs): ======')
         self.num_multi_query_token = num_multi_query_token
         self.multi_fusion_type = multi_fusion_type
-        self.max_hidden_size = max(self.acoustic_encoder.hidden_size, self.visual_encoder.hidden_size)
-        self.multi_audio_embs = nn.Linear(self.acoustic_encoder.hidden_size, self.max_hidden_size)
-        self.multi_video_embs = nn.Linear(self.visual_encoder.hidden_size,   self.max_hidden_size)
+        self.max_hidden_size = max(acoustic_hidden_size, visual_hidden_size)
+        self.multi_audio_embs = nn.Linear(acoustic_hidden_size, self.max_hidden_size)
+        self.multi_video_embs = nn.Linear(visual_hidden_size, self.max_hidden_size)
 
         ## case1: [audio, video] + Q-Former
         if self.multi_fusion_type == 'qformer':
@@ -471,13 +534,88 @@ class AffectGPT(Blip2Base):
 
         return store_hidden_state, inputs_llama
     
-    def encode_video_merge(self, video, raw_video):
-        if self.video_fusion_type == 'qformer':
-            frame_hiddens, frame_llms = self.encode_video_qformer(video, raw_video) # frame: [b c t h w] -> [b, 32, 4096]
-        elif self.video_fusion_type == 'attention':
-            frame_hiddens, frame_llms = self.encode_video_attention(video, raw_video)
-        elif self.video_fusion_type == 'mean':
-            frame_hiddens, frame_llms = self.encode_video_mean(video, raw_video)
+    def encode_video_merge(self, video, raw_video, is_preextracted=False):
+        if is_preextracted:
+            # 预提取特征模式 - 直接使用预提取的特征，跳过视觉编码器
+            device = video.device
+            batch_size = video.shape[0]
+            
+            # 检查特征维度以确定处理方式
+            if len(video.shape) == 3:
+                # 多时间步特征 [b, t, d] - 需要时序融合 (Face: [b, 8, 768])
+                time_length, hidden_dim = video.shape[1], video.shape[2]
+                store_hidden_state = video  # [b, t, d]
+                
+                # 只有多时间步特征才需要融合处理
+            elif len(video.shape) == 2:
+                # 单一特征向量 [b, d] - 无需时序融合 (Frame: [b, 768])
+                # 为了保持代码一致性，扩展为 [b, 1, d]
+                video = video.unsqueeze(1)  # [b, d] -> [b, 1, d]
+                time_length, hidden_dim = 1, video.shape[2]
+                store_hidden_state = video  # [b, 1, d]
+            else:
+                raise ValueError(f"Unexpected video shape: {video.shape}")
+            
+            # 🎯 修复：统一处理流程，单帧特征也通过Q-Former处理以保持与实时模式一致
+            if self.video_fusion_type == 'qformer':
+                # 添加位置编码（无论单帧还是多帧）- 使用与实时模式相同的位置编码
+                position_ids = torch.arange(time_length, dtype=torch.long, device=device)
+                position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
+                video_position_embeddings = self.video_frame_position_embedding(position_ids)
+                video_hidden_state = store_hidden_state + video_position_embeddings
+                
+                # Q-Former处理（统一流程）
+                query_tokens = self.video_query_tokens.expand(batch_size, -1, -1)
+                attention_mask = torch.ones(video_hidden_state.size()[:-1], dtype=torch.long, device=device)
+                
+                query_output = self.video_Qformer.bert(
+                    query_embeds=query_tokens,
+                    encoder_hidden_states=video_hidden_state,
+                    encoder_attention_mask=attention_mask,
+                    return_dict=True,
+                )
+                
+                # 投影到LLM空间
+                inputs_llama = self.affectgpt_proj(query_output.last_hidden_state)
+                frame_hiddens, frame_llms = store_hidden_state, inputs_llama
+            
+            elif self.video_fusion_type == 'attention':
+                # 注意力融合处理（统一流程）
+                if time_length == 1:
+                    # 单帧特征直接处理
+                    fused_feat = store_hidden_state.squeeze(1)  # [b, 1, 768] -> [b, 768]
+                else:
+                    # 多帧特征注意力融合 - 与实时模式保持一致
+                    attention = self.video_attention_mlp(store_hidden_state)  # [b, t, 1]
+                    store_hidden_rearranged = einops.rearrange(store_hidden_state, 'b t h -> b h t', b=batch_size, t=time_length)  # [b, h, t]
+                    fused_feat = torch.matmul(store_hidden_rearranged, attention)  # [b, h, 1]
+                    fused_feat = fused_feat.squeeze(axis=2)  # [b, h]
+                
+                inputs_llama = self.affectgpt_proj(fused_feat)  # [b, llmdim]
+                inputs_llama = torch.unsqueeze(inputs_llama, 1).expand(-1, self.num_video_query_token, -1)  # [b, num_video_query_token, llmdim]
+                frame_hiddens, frame_llms = store_hidden_state, inputs_llama
+                
+            elif self.video_fusion_type == 'mean':
+                # 均值融合处理预提取特征
+                mean_features = torch.mean(store_hidden_state, dim=1)  # [batch, hidden_dim]
+                
+                # 投影到LLM空间
+                inputs_llama = self.affectgpt_proj(mean_features)  # [b, llmdim]
+                inputs_llama = torch.unsqueeze(inputs_llama, 1).expand(-1, self.num_video_query_token, -1)  # [b, num_video_query_token, llmdim]
+                frame_hiddens, frame_llms = store_hidden_state, inputs_llama
+                
+        else:
+            # 实时处理模式 - 原有逻辑
+            if self.visual_encoder is None:
+                raise RuntimeError("Visual encoder is None but trying to use real-time mode. This indicates feature extraction service failed. Please check the service status.")
+            else:
+                # 传统实时模式：训练进程有编码器
+                if self.video_fusion_type == 'qformer':
+                    frame_hiddens, frame_llms = self.encode_video_qformer(video, raw_video) # frame: [b c t h w] -> [b, 32, 4096]
+                elif self.video_fusion_type == 'attention':
+                    frame_hiddens, frame_llms = self.encode_video_attention(video, raw_video)
+                elif self.video_fusion_type == 'mean':
+                    frame_hiddens, frame_llms = self.encode_video_mean(video, raw_video)
         return frame_hiddens, frame_llms
 
     # ===================================================== #
@@ -487,6 +625,8 @@ class AffectGPT(Blip2Base):
         with self.maybe_autocast():
 
             # Audio encoder: [b, t, 1024]
+            if self.acoustic_encoder is None:
+                raise RuntimeError("Acoustic encoder is None but trying to use real-time mode. This indicates feature extraction service failed. Please check the service status.")
             audio_hidden_state = self.acoustic_encoder(audio, raw_audio).to(device)
             batch_size, time_length = audio_hidden_state.size()[:2]
 
@@ -523,6 +663,8 @@ class AffectGPT(Blip2Base):
         with self.maybe_autocast():
 
             # audio encoder: [b, t, 1024]
+            if self.acoustic_encoder is None:
+                raise RuntimeError("Acoustic encoder is None but trying to use real-time mode. This indicates feature extraction service failed. Please check the service status.")
             hidden_state = self.acoustic_encoder(audio, raw_audio).to(device)
 
             '''
@@ -545,6 +687,8 @@ class AffectGPT(Blip2Base):
         with self.maybe_autocast():
 
             # Audio encoder: [b, t, 1024]
+            if self.acoustic_encoder is None:
+                raise RuntimeError("Acoustic encoder is None but trying to use real-time mode. This indicates feature extraction service failed. Please check the service status.")
             hidden_state = self.acoustic_encoder(audio, raw_audio).to(device)
             batch_size, time_length = hidden_state.size()[:2]
 
@@ -566,14 +710,131 @@ class AffectGPT(Blip2Base):
     
         return store_hidden_state, inputs_llama
 
-    def encode_audio_merge(self, audio, raw_audio):
-        if self.audio_fusion_type == 'qformer':
-            audio_hiddens, audio_llms = self.encode_audio_qformer(audio, raw_audio) # audio: [b t c h w] -> [b, 8,  4096]
-        elif self.audio_fusion_type == 'attention':
-            audio_hiddens, audio_llms = self.encode_audio_attention(audio, raw_audio)
-        elif self.audio_fusion_type == 'mean':
-            audio_hiddens, audio_llms = self.encode_audio_mean(audio, raw_audio)
+    def encode_audio_merge(self, audio, raw_audio, is_preextracted=False):
+        if is_preextracted:
+            # 预提取特征模式 - 直接使用预提取的特征，跳过声学编码器
+            device = audio.device
+            batch_size, time_length, hidden_dim = audio.size()  # [b, t, d]
+            
+            # 直接使用预提取特征作为hidden_state
+            store_hidden_state = audio  # [b, t, d]
+            
+            # 🎯 修复：与实时模式保持完全一致的处理流程
+            if self.audio_fusion_type == 'qformer':
+                # 总是添加位置编码，与实时模式保持一致
+                position_ids = torch.arange(time_length, dtype=torch.long, device=device)
+                position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
+                audio_position_embeddings = self.audio_position_embedding(position_ids)
+                audio_hidden_state = store_hidden_state + audio_position_embeddings
+                
+                # Q-Former处理
+                query_tokens = self.audio_query_tokens.expand(batch_size, -1, -1)
+                query_atts = torch.ones(query_tokens.size()[:-1], dtype=torch.long, device=device)
+                attention_mask = torch.ones(audio_hidden_state.size()[:-1], dtype=torch.long, device=device)
+                
+                query_output = self.audio_Qformer.bert(
+                    query_embeds=query_tokens,
+                    encoder_hidden_states=audio_hidden_state,
+                    encoder_attention_mask=attention_mask,
+                    return_dict=True,
+                )
+                
+                # 投影到LLM空间
+                inputs_llama = self.audio_llama_proj(query_output.last_hidden_state)
+                audio_hiddens, audio_llms = store_hidden_state, inputs_llama
+                
+            elif self.audio_fusion_type == 'attention':
+                # 注意力融合处理预提取特征 - 使用与实时模式相同的attention机制
+                batch_size, time_length = store_hidden_state.shape[0], store_hidden_state.shape[1]
+                
+                # 使用与实时模式相同的attention MLP
+                attention = self.audio_attention_mlp(store_hidden_state)  # [b, t, h] -> [b, t, 1]
+                audio_rearranged = einops.rearrange(store_hidden_state, 'b t h -> b h t', b=batch_size, t=time_length)  # [b, h, t]
+                fused_feat = torch.matmul(audio_rearranged, attention)  # [b, h, 1]
+                fused_feat = fused_feat.squeeze(axis=2)  # [b, h]
+                
+                # 投影到LLM空间
+                inputs_llama = self.audio_llama_proj(fused_feat)  # [b, llmdim]
+                inputs_llama = torch.unsqueeze(inputs_llama, 1).expand(-1, self.num_audio_query_token, -1)  # [b, num_audio_query_token, llmdim]
+                audio_hiddens, audio_llms = store_hidden_state, inputs_llama
+                
+            elif self.audio_fusion_type == 'mean':
+                # 均值融合处理预提取特征 [batch, clips, hidden_dim]
+                mean_features = torch.mean(store_hidden_state, dim=1)  # [batch, hidden_dim]
+                
+                # 投影到LLM空间
+                inputs_llama = self.audio_llama_proj(mean_features)  # [b, llmdim]
+                inputs_llama = torch.unsqueeze(inputs_llama, 1).expand(-1, self.num_audio_query_token, -1)  # [b, num_audio_query_token, llmdim]
+                audio_hiddens, audio_llms = store_hidden_state, inputs_llama
+        else:
+            # 实时处理模式 - 原有逻辑
+            if self.audio_fusion_type == 'qformer':
+                audio_hiddens, audio_llms = self.encode_audio_qformer(audio, raw_audio) # audio: [b t c h w] -> [b, 8,  4096]
+            elif self.audio_fusion_type == 'attention':
+                audio_hiddens, audio_llms = self.encode_audio_attention(audio, raw_audio)
+            elif self.audio_fusion_type == 'mean':
+                audio_hiddens, audio_llms = self.encode_audio_mean(audio, raw_audio)
         return audio_hiddens, audio_llms
+
+    def encode_au_merge(self, au_features, is_preextracted=True):
+        """处理AU特征 - 仅支持预提取模式，因为AU特征来自MER-Factory输出"""
+        if is_preextracted:
+            device = au_features.device
+            batch_size, time_length, hidden_dim = au_features.size()  # [b, t, 512]
+            
+            # AU特征保持CLIP ViT-B/32原始512维特征
+            store_hidden_state = au_features  # [b, t, 512]
+            
+            # 根据融合类型处理
+            if self.au_fusion_type == 'qformer':
+                # Q-Former处理
+                position_ids = torch.arange(time_length, dtype=torch.long, device=device)
+                position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
+                au_position_embeddings = self.au_position_embedding(position_ids)
+                au_hidden_state = store_hidden_state + au_position_embeddings
+                
+                query_tokens = self.au_query_tokens.expand(batch_size, -1, -1)
+                query_atts = torch.ones(query_tokens.size()[:-1], dtype=torch.long, device=device)
+                attention_mask = torch.ones(au_hidden_state.size()[:-1], dtype=torch.long, device=device)
+                
+                query_output = self.au_Qformer.bert(
+                    query_embeds=query_tokens,
+                    encoder_hidden_states=au_hidden_state,
+                    encoder_attention_mask=attention_mask,
+                    return_dict=True,
+                )
+                
+                # 投影到LLM空间
+                inputs_llama = self.au_llama_proj(query_output.last_hidden_state)
+                au_hiddens, au_llms = store_hidden_state, inputs_llama
+                
+            elif self.au_fusion_type == 'attention':
+                # 注意力融合
+                batch_size, time_length = store_hidden_state.shape[0], store_hidden_state.shape[1]
+                
+                attention = self.au_attention_mlp(store_hidden_state)  # [b, t, h] -> [b, t, 1]
+                au_rearranged = einops.rearrange(store_hidden_state, 'b t h -> b h t', b=batch_size, t=time_length)  # [b, h, t]
+                fused_feat = torch.matmul(au_rearranged, attention)  # [b, h, 1]
+                fused_feat = fused_feat.squeeze(axis=2)  # [b, h]
+                
+                # 投影到LLM空间
+                inputs_llama = self.au_llama_proj(fused_feat)  # [b, llmdim]
+                inputs_llama = torch.unsqueeze(inputs_llama, 1).expand(-1, self.num_au_query_token, -1)  # [b, num_au_query_token, llmdim]
+                au_hiddens, au_llms = store_hidden_state, inputs_llama
+                
+            elif self.au_fusion_type == 'mean':
+                # 均值融合 - 默认方式
+                mean_features = torch.mean(store_hidden_state, dim=1)  # [batch, hidden_dim]
+                
+                # 投影到LLM空间
+                inputs_llama = self.au_llama_proj(mean_features)  # [b, llmdim]
+                inputs_llama = torch.unsqueeze(inputs_llama, 1).expand(-1, self.num_au_query_token, -1)  # [b, num_au_query_token, llmdim]
+                au_hiddens, au_llms = store_hidden_state, inputs_llama
+        else:
+            # AU特征只支持预提取模式
+            raise RuntimeError("AU features only support preextracted mode")
+            
+        return au_hiddens, au_llms
 
     # ===================================================== #
     # ===================================================== #
@@ -656,21 +917,34 @@ class AffectGPT(Blip2Base):
     def forward(self, samples):
 
         self.face_or_frame = samples['face_or_frame'] # 把这个参数传出来
-        frame_llms, face_llms, audio_llms, image_llms, multi_llms = None, None, None, None, None
+        frame_llms, face_llms, audio_llms, image_llms, multi_llms, au_llms = None, None, None, None, None, None
         if 'frames' in samples: 
-            frame_hiddens, frame_llms = self.encode_video_merge(samples['frames'],  samples['raw_frames']) # frame: [b c t h w] -> [b, 32, 4096]
+            frame_hiddens, frame_llms = self.encode_video_merge(samples['frames'],  samples['raw_frames'], is_preextracted=samples.get('frame_preextracted', False)) # frame: [b c t h w] -> [b, 32, 4096]
         if 'faces'  in samples: 
             # print (samples['faces'].shape)
-            face_hiddens,  face_llms  = self.encode_video_merge(samples['faces'],  samples['raw_faces']) # face:  [b c t h w] -> [b, 32, 4096]
+            face_hiddens,  face_llms  = self.encode_video_merge(samples['faces'],  samples['raw_faces'], is_preextracted=samples.get('face_preextracted', False)) # face:  [b c t h w] -> [b, 32, 4096]
         if 'audios' in samples: 
-            audio_hiddens, audio_llms = self.encode_audio_merge(samples['audios'],  samples['raw_audios'])
+            audio_hiddens, audio_llms = self.encode_audio_merge(samples['audios'],  samples['raw_audios'], is_preextracted=samples.get('audio_preextracted', False))
+        if 'aus' in samples:  # 新增：AU特征处理
+            au_hiddens, au_llms = self.encode_au_merge(samples['aus'], is_preextracted=samples.get('au_preextracted', True))  # AU仅支持预提取模式
         if 'images' in samples: 
             image_hiddens, image_llms = self.encode_image_merge(samples['images'],  samples['raw_images'])
         if (samples['input_ids'][0] == self.MULTI_PATCH_TOKEN_ID).sum() != 0: # 这是时候才需要 multi
-            if self.face_or_frame.startswith('multiface'):
-                multi_hiddens, multi_llms = self.encode_multi_merge(face_hiddens, audio_hiddens)
-            if self.face_or_frame.startswith('multiframe'):
-                multi_hiddens, multi_llms = self.encode_multi_merge(frame_hiddens, audio_hiddens)
+            # 🎯 修复：强制使用实时Multi融合，避免预提取Multi特征的近似误差
+            # 即使有预提取的Multi特征，也使用实时融合以保持端到端梯度流
+            if 'faces' in samples and 'audios' in samples:
+                # 实时Multi融合模式 - 使用预提取的单模态特征进行实时融合
+                if self.face_or_frame.startswith('multiface'):
+                    multi_hiddens, multi_llms = self.encode_multi_merge(face_hiddens, audio_hiddens)
+                elif self.face_or_frame.startswith('multiframe'):
+                    multi_hiddens, multi_llms = self.encode_multi_merge(frame_hiddens, audio_hiddens)
+                else:
+                    print(f"⚠️ Warning: Unknown multi fusion type: {self.face_or_frame}")
+                    multi_hiddens, multi_llms = None, None
+            else:
+                # 如果缺少必要的模态特征，跳过Multi融合
+                print("⚠️ Warning: Multi fusion requires both face/frame and audio features")
+                multi_hiddens, multi_llms = None, None
 
         # temp_input_ids: <ImageHere> -> [0]   
         input_ids = samples['input_ids']
@@ -680,6 +954,7 @@ class AffectGPT(Blip2Base):
         temp_input_ids[temp_input_ids == self.AUDIO_PATCH_TOKEN_ID] = 0
         temp_input_ids[temp_input_ids == self.MULTI_PATCH_TOKEN_ID] = 0
         temp_input_ids[temp_input_ids == self.IMAGE_PATCH_TOKEN_ID] = 0
+        temp_input_ids[temp_input_ids == self.AU_PATCH_TOKEN_ID] = 0
         temp_input_embedding = self.llama_model.model.model.embed_tokens(temp_input_ids) # 嵌套 LoRA 之后，会在 model 外面再包一层
 
         ## replace <ImageHere>; <MultiHere>; <FrameHere>; <FaceHere>; <AudioHere>
@@ -691,9 +966,27 @@ class AffectGPT(Blip2Base):
                                                                 (self.AUDIO_PATCH_TOKEN_ID, self.num_audio_query_token, audio_llms),
                                                                 (self.MULTI_PATCH_TOKEN_ID, self.num_multi_query_token, multi_llms),
                                                                 (self.IMAGE_PATCH_TOKEN_ID, self.num_image_query_token, image_llms),
+                                                                (self.AU_PATCH_TOKEN_ID, self.num_au_query_token, au_llms),
                                                                 ]:
                 if (cur_input_ids == patch_token_id).sum() != 0:
-                    assert embeds is not None, f'Some input info is missing.'
+                    if embeds is None:
+                        # 详细调试信息
+                        token_names = {
+                            self.FRAME_PATCH_TOKEN_ID: "FRAME",
+                            self.FACE_PATCH_TOKEN_ID: "FACE", 
+                            self.AUDIO_PATCH_TOKEN_ID: "AUDIO",
+                            self.MULTI_PATCH_TOKEN_ID: "MULTI",
+                            self.IMAGE_PATCH_TOKEN_ID: "IMAGE",
+                            self.AU_PATCH_TOKEN_ID: "AU"
+                        }
+                        token_name = token_names.get(patch_token_id, f"UNKNOWN({patch_token_id})")
+                        print(f"❌ {token_name} embeds is None for sample {cur_idx}")
+                        print(f"   frame_llms: {frame_llms is not None if 'frame_llms' in locals() else 'undefined'}")
+                        print(f"   face_llms: {face_llms is not None if 'face_llms' in locals() else 'undefined'}")
+                        print(f"   audio_llms: {audio_llms is not None if 'audio_llms' in locals() else 'undefined'}")
+                        print(f"   multi_llms: {multi_llms is not None if 'multi_llms' in locals() else 'undefined'}")
+                        print(f"   image_llms: {image_llms is not None if 'image_llms' in locals() else 'undefined'}")
+                    assert embeds is not None, f'Some input info is missing: {token_names.get(patch_token_id, f"UNKNOWN({patch_token_id})")} embeds is None.'
                     cur_features = embeds[cur_idx]
                     if (cur_input_ids == patch_token_id).sum() != query_token_number:
                         raise ValueError("The number of audio patch tokens should be the same as the number of audio patches.")
@@ -741,6 +1034,7 @@ class AffectGPT(Blip2Base):
         video_fusion_type = cfg.get("video_fusion_type", "qformer")
         audio_fusion_type = cfg.get("audio_fusion_type", "qformer")
         image_fusion_type = cfg.get("image_fusion_type", "token")
+        au_fusion_type = cfg.get("au_fusion_type", "mean")  # AU默认使用mean融合
 
         # Audio/Video Q-Former
         frozen_video_Qformer    = cfg.get("frozen_video_Qformer", False)
@@ -749,6 +1043,7 @@ class AffectGPT(Blip2Base):
         frozen_audio_proj = cfg.get("frozen_audio_proj", False)
         frozen_multi_Qformer    = cfg.get("frozen_multi_Qformer", False)
         frozen_multi_llama_proj = cfg.get("frozen_multi_llama_proj", False)
+        frozen_au_proj = cfg.get("frozen_au_proj", False)  # AU投影层冻结参数
         frozen_llm = cfg.get("frozen_llm", False)
         lora_r = cfg.get("lora_r", 16)
 
@@ -757,6 +1052,12 @@ class AffectGPT(Blip2Base):
         num_video_query_token = cfg.get("num_video_query_token", 'xxx') # 32
         num_multi_query_token = cfg.get("num_multi_query_token", 'xxx') # 16
         num_image_query_token = cfg.get("num_image_query_token", 'xxx') # 32
+        num_au_query_token = cfg.get("num_au_query_token", 8)  # AU query token数量，默认8个
+        
+        # 预提取模式下跳过编码器加载
+        skip_encoders = cfg.get("skip_encoders", False)
+        preextracted_visual_dim = cfg.get("preextracted_visual_dim", 768)
+        preextracted_acoustic_dim = cfg.get("preextracted_acoustic_dim", 1024)
 
         model = cls(
             visual_encoder_name=visual_encoder_name,
@@ -774,11 +1075,20 @@ class AffectGPT(Blip2Base):
             num_audio_query_token=num_audio_query_token,
             num_multi_query_token=num_multi_query_token,
             num_image_query_token=num_image_query_token,
+            num_au_query_token=num_au_query_token,
+            frozen_au_proj=frozen_au_proj,
             multi_fusion_type=multi_fusion_type,
             video_fusion_type=video_fusion_type,
             audio_fusion_type=audio_fusion_type,
             image_fusion_type=image_fusion_type,
+            au_fusion_type=au_fusion_type,
+            skip_encoders=skip_encoders,
         )
+        
+        # 设置预提取特征维度
+        if skip_encoders:
+            model.preextracted_visual_dim = preextracted_visual_dim
+            model.preextracted_acoustic_dim = preextracted_acoustic_dim
 
         # priority: ckpt < ckpt_2 < ckpt_3 
         # => 后面的预训练权重会覆盖前面的预训练权重，所有模型加载的顺序是有讲究的

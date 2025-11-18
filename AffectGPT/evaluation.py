@@ -291,7 +291,8 @@ def func_return_scores_one(modelname=None, dataset_candidates='affectgpt'):
 
     print_per_dataset, avg_score = [], []
     for dataset in process_datasets:
-        process_root = f"output/results-{dataset}/{modelname}"
+        # process_root = f"output/results-{dataset}/{modelname}"
+        process_root = f"output/log_information/emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz_face_frame_au/face_frame_compare_test/inference_result/results-{dataset}/{modelname}"
         ## 计算指标
         score1, score2, score3 = main_zeroshot_scores(process_root, debug=True, test_epochs='', inter_print=False)
         print_per_dataset.extend([score1])
@@ -309,18 +310,30 @@ if __name__ == "__main__":
         Qwen2.5-3B:(multi, face, audio, text):          emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz_new
         Qwen2.5-3B:(multi, frame, audio, text):         mercaptionplus_outputhybird_bestsetup_bestfusion_frame_lz
         Qwen2.5-3B:(multi, face, frame, audio, text):   emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz_face_frame
+        Qwen2.5-7B:(multi, face, audio, text):预提取方式   
+        emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz_original
+        Qwen2.5-7B:(multi, face, frame, audio, text):四模态，分布式多卡：一卡训练一卡特征  
+        emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz_t
+        Qwen2.5-7B:(multi, face, frame, audio, text):四模态，预提取  60-90轮
+        emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz
     """
     ## step1：测试新模型下的结果
+    # for modelname in [
+    #                 'emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz',
+    #                 ]:
     for modelname in [
-                    'emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz',
-                    ]:
+                    'emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz_face_frame_test',
+                    ]:                    
         for dataset in ["mer2023", "mer2024", "meld", "iemocapfour", "cmumosi", "cmumosei", "sims", "simsv2", "ovmerdplus"]:
-            main_zeroshot_scores(f"output/results-{dataset}/{modelname}")
-
+            # main_zeroshot_scores(f"output/results-{dataset}/{modelname}")
+            main_zeroshot_scores(f"output/log_information/emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz_face_frame_au/face_frame_compare_test/inference_result/results-{dataset}/{modelname}")
 
     ## step2: 结果汇总展示
+    # for modelname in [
+    #                 "emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz",
+    #                 ]:
     for modelname in [
-                    "emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz",
-                    ]:
+                    "emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz_face_frame_test",
+                    ]:                    
         print_per_dataset, avg_score = func_return_scores_one(modelname=modelname)
         print (modelname, " ".join(print_per_dataset))

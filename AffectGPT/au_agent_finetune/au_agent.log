@@ -1,0 +1,327 @@
+=========================================
+AU Agent Setup - Complete Pipeline
+=========================================
+
+Step 0: Checking dependencies...
+
+✅ All dependencies ready
+
+=========================================
+Step 1: Preparing AU instruction dataset
+=========================================
+
+============================================================
+AU Instruction Dataset Preparation
+============================================================
+
+📋 Loading emotion labels from: /home/project/Dataset/Emotion/MER2025/dataset/mer2025-dataset/track2_train_mercaptionplus_test.csv
+✅ Loaded 5000 emotion labels
+
+📁 Found 5000 AU analysis files
+  Processed 1000 samples...
+  Processed 6000 samples...
+  Processed 14000 samples...
+  Processed 15000 samples...
+  Processed 20000 samples...
+  Processed 26000 samples...
+
+✅ Total samples collected: 32153
+📊 Train: 30545, Val: 1608
+
+💾 Dataset saved to: ./au_instruction_dataset.json
+
+============================================================
+Sample Examples:
+============================================================
+
+--- Example 1 ---
+Instruction: Generate a detailed facial expression description based on the given information.
+Input: Emotion: [acknowledgment, appreciation, curiosity, surprise, hesitation]
+Prompt: Given the emotion label, AU intensity values, and their semantic descriptions, provide a detailed and natural facial expression description:
+AU values: AU26: 1.39
+AU descriptions: Jaw drop (intensity: 1.39)
+Output: The expression is marked by a pronounced jaw drop, indicating significant mandibular depression, with no other notable facial muscle movements, sugges...
+
+--- Example 2 ---
+Instruction: Generate a detailed facial expression description based on the given information.
+Input: Emotion: [haste, tension, stress, anxiety]
+Prompt: Given the emotion label, AU intensity values, and their semantic descriptions, provide a detailed and natural facial expression description:
+AU values: AU06: 1.00, AU07: 1.30, AU10: 1.15, AU14: 1.81
+AU descriptions: Cheek raiser (intensity: 1.00), Lid tightener (intensity: 1.30), Upper lip raiser (intensity: 1.15), Dimpler (intensity: 1.81)
+Output: In the fifth frame, cheek raising and lid tightening persist with slight modulation, accompanied by upper lip raising and dimpling, maintaining consis...
+
+--- Example 3 ---
+Instruction: Generate a detailed facial expression description based on the given information.
+Input: Emotion: [excited, anticipation, positive]
+Prompt: Given the emotion label, AU intensity values, and their semantic descriptions, provide a detailed and natural facial expression description:
+AU values: AU02: 1.36, AU14: 1.14, AU17: 1.46, AU23: 1.06
+AU descriptions: Outer brow raiser (intensity: 1.36), Dimpler (intensity: 1.14), Chin raiser (intensity: 1.46), Lip tightener (intensity: 1.06)
+Output: The expression maintains outer brow elevation and intensified chin protrusion, accompanied by noticeable lip surface constriction and lateral cheek di...
+✅ Train JSONL saved to: ./au_instruction_dataset_train.jsonl
+✅ Val JSONL saved to: ./au_instruction_dataset_val.jsonl
+
+============================================================
+Dataset preparation complete!
+============================================================
+
+📊 Dataset Statistics:
+  - Train samples: 30545
+  - Val samples: 1608
+
+📁 Generated Files:
+  - Full dataset: ./au_instruction_dataset.json
+  - Train JSONL: ./au_instruction_dataset_train.jsonl
+  - Val JSONL: ./au_instruction_dataset_val.jsonl
+
+🚀 Next steps:
+1. Review dataset quality
+2. Run training: bash train_au_agent.sh
+3. Test AU Agent generation quality
+
+✅ Dataset ready
+
+=========================================
+Step 2: Training AU Agent (this will take 8-12 hours)
+=========================================
+
+Starting training automatically...
+=========================================
+AU Agent Training with LLaMA-Factory
+=========================================
+Registering dataset...
+✅ Dataset registered
+
+Starting training...
+
+[INFO|2025-11-18 10:40:59] llamafactory.hparams.parser:468 >> Process rank: 0, world size: 1, device: cuda:0, distributed training: False, compute dtype: torch.bfloat16
+[INFO|tokenization_utils_base.py:2093] 2025-11-18 10:40:59,179 >> loading file vocab.json
+[INFO|tokenization_utils_base.py:2093] 2025-11-18 10:40:59,179 >> loading file merges.txt
+[INFO|tokenization_utils_base.py:2093] 2025-11-18 10:40:59,179 >> loading file tokenizer.json
+[INFO|tokenization_utils_base.py:2093] 2025-11-18 10:40:59,179 >> loading file added_tokens.json
+[INFO|tokenization_utils_base.py:2093] 2025-11-18 10:40:59,179 >> loading file special_tokens_map.json
+[INFO|tokenization_utils_base.py:2093] 2025-11-18 10:40:59,179 >> loading file tokenizer_config.json
+[INFO|tokenization_utils_base.py:2093] 2025-11-18 10:40:59,179 >> loading file chat_template.jinja
+[INFO|tokenization_utils_base.py:2364] 2025-11-18 10:40:59,522 >> Special tokens have been added in the vocabulary, make sure the associated word embeddings are fine-tuned or trained.
+[INFO|configuration_utils.py:763] 2025-11-18 10:40:59,523 >> loading configuration file /home/project/Dataset/Emotion/tools/transformer/LLM/Qwen2.5-7B-Instruct/config.json
+[INFO|configuration_utils.py:839] 2025-11-18 10:40:59,525 >> Model config Qwen2Config {
+  "architectures": [
+    "Qwen2ForCausalLM"
+  ],
+  "attention_dropout": 0.0,
+  "bos_token_id": 151643,
+  "dtype": "bfloat16",
+  "eos_token_id": 151645,
+  "hidden_act": "silu",
+  "hidden_size": 3584,
+  "initializer_range": 0.02,
+  "intermediate_size": 18944,
+  "layer_types": [
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention"
+  ],
+  "max_position_embeddings": 32768,
+  "max_window_layers": 28,
+  "model_type": "qwen2",
+  "num_attention_heads": 28,
+  "num_hidden_layers": 28,
+  "num_key_value_heads": 4,
+  "rms_norm_eps": 1e-06,
+  "rope_scaling": null,
+  "rope_theta": 1000000.0,
+  "sliding_window": null,
+  "tie_word_embeddings": false,
+  "transformers_version": "4.57.1",
+  "use_cache": true,
+  "use_sliding_window": false,
+  "vocab_size": 152064
+}
+
+[INFO|tokenization_utils_base.py:2093] 2025-11-18 10:40:59,526 >> loading file vocab.json
+[INFO|tokenization_utils_base.py:2093] 2025-11-18 10:40:59,526 >> loading file merges.txt
+[INFO|tokenization_utils_base.py:2093] 2025-11-18 10:40:59,526 >> loading file tokenizer.json
+[INFO|tokenization_utils_base.py:2093] 2025-11-18 10:40:59,526 >> loading file added_tokens.json
+[INFO|tokenization_utils_base.py:2093] 2025-11-18 10:40:59,526 >> loading file special_tokens_map.json
+[INFO|tokenization_utils_base.py:2093] 2025-11-18 10:40:59,526 >> loading file tokenizer_config.json
+[INFO|tokenization_utils_base.py:2093] 2025-11-18 10:40:59,526 >> loading file chat_template.jinja
+[INFO|tokenization_utils_base.py:2364] 2025-11-18 10:40:59,854 >> Special tokens have been added in the vocabulary, make sure the associated word embeddings are fine-tuned or trained.
+[INFO|2025-11-18 10:40:59] llamafactory.data.loader:143 >> Loading dataset /home/project/AffectGPT/AffectGPT/au_agent_finetune/au_instruction_dataset_train.jsonl...
+Setting num_proc from 16 back to 1 for the train split to disable multiprocessing as it only contains one shard.
+Generating train split: 0 examples [00:00, ? examples/s]Generating train split: 30545 examples [00:00, 402696.32 examples/s]
+Converting format of dataset (num_proc=16):   0%|          | 0/30545 [00:00<?, ? examples/s]Converting format of dataset (num_proc=16):   1%|          | 367/30545 [00:00<00:40, 751.01 examples/s]Converting format of dataset (num_proc=16):  55%|█████▍    | 16716/30545 [00:00<00:00, 37027.78 examples/s]Converting format of dataset (num_proc=16): 100%|██████████| 30545/30545 [00:00<00:00, 60271.26 examples/s]Converting format of dataset (num_proc=16): 100%|██████████| 30545/30545 [00:00<00:00, 35229.20 examples/s]
+[INFO|2025-11-18 10:41:01] llamafactory.data.loader:143 >> Loading dataset /home/project/AffectGPT/AffectGPT/au_agent_finetune/au_instruction_dataset_val.jsonl...
+Setting num_proc from 16 back to 1 for the train split to disable multiprocessing as it only contains one shard.
+Generating train split: 0 examples [00:00, ? examples/s]Generating train split: 1608 examples [00:00, 77917.27 examples/s]
+Converting format of dataset (num_proc=16):   0%|          | 0/1608 [00:00<?, ? examples/s]Converting format of dataset (num_proc=16):   6%|▋         | 101/1608 [00:00<00:08, 178.38 examples/s]Converting format of dataset (num_proc=16): 100%|██████████| 1608/1608 [00:00<00:00, 1925.90 examples/s]
+Running tokenizer on dataset (num_proc=16):   0%|          | 0/30545 [00:00<?, ? examples/s]Running tokenizer on dataset (num_proc=16):   3%|▎         | 1000/30545 [00:02<01:02, 471.51 examples/s]Running tokenizer on dataset (num_proc=16):   7%|▋         | 2000/30545 [00:02<00:27, 1048.85 examples/s]Running tokenizer on dataset (num_proc=16):  13%|█▎        | 4000/30545 [00:02<00:11, 2283.32 examples/s]Running tokenizer on dataset (num_proc=16):  16%|█▋        | 5000/30545 [00:02<00:08, 2923.38 examples/s]Running tokenizer on dataset (num_proc=16):  23%|██▎       | 7000/30545 [00:02<00:05, 4615.89 examples/s]Running tokenizer on dataset (num_proc=16):  29%|██▉       | 8909/30545 [00:02<00:03, 6230.45 examples/s]Running tokenizer on dataset (num_proc=16):  38%|███▊      | 11728/30545 [00:03<00:02, 9147.28 examples/s]Running tokenizer on dataset (num_proc=16):  45%|████▍     | 13637/30545 [00:03<00:01, 8755.69 examples/s]Running tokenizer on dataset (num_proc=16):  51%|█████     | 15637/30545 [00:03<00:01, 10162.42 examples/s]Running tokenizer on dataset (num_proc=16):  60%|██████    | 18364/30545 [00:03<00:00, 12773.37 examples/s]Running tokenizer on dataset (num_proc=16):  67%|██████▋   | 20364/30545 [00:03<00:00, 12447.68 examples/s]Running tokenizer on dataset (num_proc=16):  76%|███████▌  | 23182/30545 [00:03<00:00, 15175.68 examples/s]Running tokenizer on dataset (num_proc=16):  82%|████████▏ | 25091/30545 [00:04<00:00, 13494.77 examples/s]Running tokenizer on dataset (num_proc=16):  88%|████████▊ | 26909/30545 [00:04<00:00, 11040.41 examples/s]Running tokenizer on dataset (num_proc=16):  94%|█████████▍| 28727/30545 [00:04<00:00, 9947.93 examples/s] Running tokenizer on dataset (num_proc=16): 100%|██████████| 30545/30545 [00:04<00:00, 8411.03 examples/s]Running tokenizer on dataset (num_proc=16): 100%|██████████| 30545/30545 [00:05<00:00, 6079.05 examples/s]
+training example:
+input_ids:
+[151644, 8948, 198, 2610, 525, 1207, 16948, 11, 3465, 553, 54364, 14817, 13, 1446, 525, 264, 10950, 17847, 13, 151645, 198, 151644, 872, 198, 31115, 264, 11682, 27800, 7493, 4008, 3118, 389, 279, 2661, 1995, 624, 2269, 5956, 25, 508, 473, 50022, 9070, 11, 34896, 11, 40228, 11, 12761, 11, 64337, 921, 54615, 25, 16246, 279, 19772, 2383, 11, 39056, 20612, 2750, 11, 323, 862, 41733, 27787, 11, 3410, 264, 11682, 323, 5810, 27800, 7493, 4008, 510, 35028, 2750, 25, 39056, 17, 21, 25, 220, 16, 13, 18, 24, 198, 35028, 27787, 25, 33194, 5943, 320, 396, 7968, 25, 220, 16, 13, 18, 24, 8, 151645, 198, 151644, 77091, 198, 785, 7493, 374, 12864, 553, 264, 37517, 16535, 5943, 11, 18860, 5089, 11576, 579, 1276, 18210, 11, 448, 902, 1008, 27190, 27800, 15747, 19029, 11, 22561, 458, 24203, 15099, 315, 279, 4722, 27800, 5537, 13, 151645, 198]
+inputs:
+<|im_start|>system
+You are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>
+<|im_start|>user
+Generate a detailed facial expression description based on the given information.
+Emotion: [acknowledgment, appreciation, curiosity, surprise, hesitation]
+Prompt: Given the emotion label, AU intensity values, and their semantic descriptions, provide a detailed and natural facial expression description:
+AU values: AU26: 1.39
+AU descriptions: Jaw drop (intensity: 1.39)<|im_end|>
+<|im_start|>assistant
+The expression is marked by a pronounced jaw drop, indicating significant mandibular depression, with no other notable facial muscle movements, suggesting an isolated activation of the lower facial region.<|im_end|>
+
+label_ids:
+[-100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, 785, 7493, 374, 12864, 553, 264, 37517, 16535, 5943, 11, 18860, 5089, 11576, 579, 1276, 18210, 11, 448, 902, 1008, 27190, 27800, 15747, 19029, 11, 22561, 458, 24203, 15099, 315, 279, 4722, 27800, 5537, 13, 151645, 198]
+labels:
+The expression is marked by a pronounced jaw drop, indicating significant mandibular depression, with no other notable facial muscle movements, suggesting an isolated activation of the lower facial region.<|im_end|>
+
+Running tokenizer on dataset (num_proc=16):   0%|          | 0/1608 [00:00<?, ? examples/s]Running tokenizer on dataset (num_proc=16):   6%|▋         | 101/1608 [00:01<00:18, 80.18 examples/s]Running tokenizer on dataset (num_proc=16):  13%|█▎        | 202/1608 [00:01<00:08, 171.80 examples/s]Running tokenizer on dataset (num_proc=16):  19%|█▉        | 303/1608 [00:01<00:05, 258.86 examples/s]Running tokenizer on dataset (num_proc=16):  25%|██▌       | 404/1608 [00:01<00:03, 351.00 examples/s]Running tokenizer on dataset (num_proc=16):  31%|███▏      | 505/1608 [00:01<00:03, 351.77 examples/s]Running tokenizer on dataset (num_proc=16):  44%|████▍     | 707/1608 [00:02<00:01, 577.08 examples/s]Running tokenizer on dataset (num_proc=16):  50%|█████     | 808/1608 [00:02<00:01, 514.14 examples/s]Running tokenizer on dataset (num_proc=16):  56%|█████▋    | 908/1608 [00:02<00:01, 554.04 examples/s]Running tokenizer on dataset (num_proc=16):  69%|██████▉   | 1108/1608 [00:02<00:00, 736.84 examples/s]Running tokenizer on dataset (num_proc=16):  75%|███████▌  | 1208/1608 [00:02<00:00, 759.81 examples/s]Running tokenizer on dataset (num_proc=16):  81%|████████▏ | 1308/1608 [00:02<00:00, 755.50 examples/s]Running tokenizer on dataset (num_proc=16):  88%|████████▊ | 1408/1608 [00:03<00:00, 665.10 examples/s]Running tokenizer on dataset (num_proc=16):  94%|█████████▍| 1508/1608 [00:03<00:00, 630.77 examples/s]Running tokenizer on dataset (num_proc=16): 100%|██████████| 1608/1608 [00:03<00:00, 453.86 examples/s]
+[INFO|configuration_utils.py:763] 2025-11-18 10:41:11,874 >> loading configuration file /home/project/Dataset/Emotion/tools/transformer/LLM/Qwen2.5-7B-Instruct/config.json
+[INFO|configuration_utils.py:839] 2025-11-18 10:41:11,876 >> Model config Qwen2Config {
+  "architectures": [
+    "Qwen2ForCausalLM"
+  ],
+  "attention_dropout": 0.0,
+  "bos_token_id": 151643,
+  "dtype": "bfloat16",
+  "eos_token_id": 151645,
+  "hidden_act": "silu",
+  "hidden_size": 3584,
+  "initializer_range": 0.02,
+  "intermediate_size": 18944,
+  "layer_types": [
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention",
+    "full_attention"
+  ],
+  "max_position_embeddings": 32768,
+  "max_window_layers": 28,
+  "model_type": "qwen2",
+  "num_attention_heads": 28,
+  "num_hidden_layers": 28,
+  "num_key_value_heads": 4,
+  "rms_norm_eps": 1e-06,
+  "rope_scaling": null,
+  "rope_theta": 1000000.0,
+  "sliding_window": null,
+  "tie_word_embeddings": false,
+  "transformers_version": "4.57.1",
+  "use_cache": true,
+  "use_sliding_window": false,
+  "vocab_size": 152064
+}
+
+eval example:
+input_ids:
+[151644, 8948, 198, 2610, 525, 1207, 16948, 11, 3465, 553, 54364, 14817, 13, 1446, 525, 264, 10950, 17847, 13, 151645, 198, 151644, 872, 198, 31115, 264, 11682, 27800, 7493, 4008, 3118, 389, 279, 2661, 1995, 624, 2269, 5956, 25, 508, 5799, 12670, 11, 1492, 31928, 11, 8225, 21261, 921, 54615, 25, 16246, 279, 19772, 2383, 11, 39056, 20612, 2750, 11, 323, 862, 41733, 27787, 11, 3410, 264, 11682, 323, 5810, 27800, 7493, 4008, 510, 35028, 2750, 25, 39056, 15, 19, 25, 220, 17, 13, 17, 19, 11, 39056, 15, 22, 25, 220, 16, 13, 23, 22, 11, 39056, 16, 15, 25, 220, 16, 13, 24, 24, 11, 39056, 16, 17, 25, 220, 15, 13, 23, 17, 11, 39056, 16, 19, 25, 220, 17, 13, 24, 18, 11, 39056, 16, 22, 25, 220, 15, 13, 24, 17, 198, 35028, 27787, 25, 28377, 4722, 261, 320, 396, 7968, 25, 220, 17, 13, 17, 19, 701, 80609, 10296, 798, 320, 396, 7968, 25, 220, 16, 13, 23, 22, 701, 30614, 19050, 6369, 261, 320, 396, 7968, 25, 220, 16, 13, 24, 24, 701, 41139, 9131, 6815, 261, 320, 3563, 457, 8, 320, 396, 7968, 25, 220, 15, 13, 23, 17, 701, 422, 6383, 261, 320, 396, 7968, 25, 220, 17, 13, 24, 18, 701, 48235, 6369, 261, 320, 396, 7968, 25, 220, 15, 13, 24, 17, 8, 151645, 198, 151644, 77091, 198, 30328, 32724, 4933, 7172, 59275, 45201, 11, 23922, 26334, 76780, 11, 323, 12966, 8416, 19050, 26163, 11, 448, 8112, 19050, 9131, 22266, 323, 37517, 5103, 11863, 11, 41752, 264, 6351, 946, 1363, 315, 27800, 23648, 13, 151645, 198]
+inputs:
+<|im_start|>system
+You are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>
+<|im_start|>user
+Generate a detailed facial expression description based on the given information.
+Emotion: [despair, helplessness, negative emotions]
+Prompt: Given the emotion label, AU intensity values, and their semantic descriptions, provide a detailed and natural facial expression description:
+AU values: AU04: 2.24, AU07: 1.87, AU10: 1.99, AU12: 0.82, AU14: 2.93, AU17: 0.92
+AU descriptions: Brow lowerer (intensity: 2.24), Lid tightener (intensity: 1.87), Upper lip raiser (intensity: 1.99), Lip corner puller (smile) (intensity: 0.82), Dimpler (intensity: 2.93), Chin raiser (intensity: 0.92)<|im_end|>
+<|im_start|>assistant
+Further progression shows increased brow lowering, enhanced lid tightening, and consistent upper lip elevation, with slight lip corner pulling and pronounced dimpling, reflecting a complex interplay of facial muscles.<|im_end|>
+
+label_ids:
+[-100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, 30328, 32724, 4933, 7172, 59275, 45201, 11, 23922, 26334, 76780, 11, 323, 12966, 8416, 19050, 26163, 11, 448, 8112, 19050, 9131, 22266, 323, 37517, 5103, 11863, 11, 41752, 264, 6351, 946, 1363, 315, 27800, 23648, 13, 151645, 198]
+labels:
+Further progression shows increased brow lowering, enhanced lid tightening, and consistent upper lip elevation, with slight lip corner pulling and pronounced dimpling, reflecting a complex interplay of facial muscles.<|im_end|>
+
+[INFO|2025-11-18 10:41:11] llamafactory.model.model_utils.kv_cache:143 >> KV cache is disabled during training.
+[WARNING|logging.py:328] 2025-11-18 10:41:12,279 >> `torch_dtype` is deprecated! Use `dtype` instead!
+[INFO|modeling_utils.py:1169] 2025-11-18 10:41:12,280 >> loading weights file /home/project/Dataset/Emotion/tools/transformer/LLM/Qwen2.5-7B-Instruct/model.safetensors.index.json
+[INFO|modeling_utils.py:2341] 2025-11-18 10:41:12,280 >> Instantiating Qwen2ForCausalLM model under default dtype torch.bfloat16.
+[INFO|configuration_utils.py:986] 2025-11-18 10:41:12,283 >> Generate config GenerationConfig {
+  "bos_token_id": 151643,
+  "eos_token_id": 151645,
+  "use_cache": false
+}
+
+Loading checkpoint shards:   0%|          | 0/4 [00:00<?, ?it/s]Loading checkpoint shards:  25%|██▌       | 1/4 [00:01<00:04,  1.55s/it]Loading checkpoint shards:  50%|█████     | 2/4 [00:02<00:02,  1.49s/it]Loading checkpoint shards:  75%|███████▌  | 3/4 [00:04<00:01,  1.47s/it]Loading checkpoint shards: 100%|██████████| 4/4 [00:05<00:00,  1.39s/it]Loading checkpoint shards: 100%|██████████| 4/4 [00:05<00:00,  1.43s/it]
+[INFO|configuration_utils.py:939] 2025-11-18 10:41:18,053 >> loading configuration file /home/project/Dataset/Emotion/tools/transformer/LLM/Qwen2.5-7B-Instruct/generation_config.json
+[INFO|configuration_utils.py:986] 2025-11-18 10:41:18,053 >> Generate config GenerationConfig {
+  "bos_token_id": 151643,
+  "do_sample": true,
+  "eos_token_id": [
+    151645,
+    151643
+  ],
+  "pad_token_id": 151643,
+  "repetition_penalty": 1.05,
+  "temperature": 0.7,
+  "top_k": 20,
+  "top_p": 0.8
+}
+
+[INFO|dynamic_module_utils.py:423] 2025-11-18 10:41:18,054 >> Could not locate the custom_generate/generate.py inside /home/project/Dataset/Emotion/tools/transformer/LLM/Qwen2.5-7B-Instruct.
+[INFO|2025-11-18 10:41:18] llamafactory.model.model_utils.checkpointing:143 >> Gradient checkpointing enabled.
+[INFO|2025-11-18 10:41:18] llamafactory.model.model_utils.attention:143 >> Using torch SDPA for faster training and inference.
+[INFO|2025-11-18 10:41:18] llamafactory.model.adapter:143 >> Upcasting trainable params to float32.
+[INFO|2025-11-18 10:41:18] llamafactory.model.adapter:143 >> Fine-tuning method: LoRA
+[INFO|2025-11-18 10:41:18] llamafactory.model.model_utils.misc:143 >> Found linear modules: q_proj,o_proj,gate_proj,down_proj,up_proj,v_proj,k_proj
+[INFO|2025-11-18 10:41:21] llamafactory.model.loader:143 >> trainable params: 161,480,704 || all params: 7,777,097,216 || trainable%: 2.0764
+[WARNING|trainer.py:906] 2025-11-18 10:41:21,094 >> The model is already on multiple devices. Skipping the move to device specified in `args`.
+[INFO|trainer.py:749] 2025-11-18 10:41:21,140 >> Using auto half precision backend
+[WARNING|trainer.py:982] 2025-11-18 10:41:21,141 >> The tokenizer has new PAD/BOS/EOS tokens that differ from the model config and generation config. The model config and generation config were aligned accordingly, being updated with the tokenizer's values. Updated tokens: {'bos_token_id': None, 'pad_token_id': 151643}.
+[INFO|trainer.py:2519] 2025-11-18 10:41:21,465 >> ***** Running training *****
+[INFO|trainer.py:2520] 2025-11-18 10:41:21,465 >>   Num examples = 30,545
+[INFO|trainer.py:2521] 2025-11-18 10:41:21,465 >>   Num Epochs = 3
+[INFO|trainer.py:2522] 2025-11-18 10:41:21,465 >>   Instantaneous batch size per device = 4
+[INFO|trainer.py:2525] 2025-11-18 10:41:21,465 >>   Total train batch size (w. parallel, distributed & accumulation) = 16
+[INFO|trainer.py:2526] 2025-11-18 10:41:21,465 >>   Gradient Accumulation steps = 4
+[INFO|trainer.py:2527] 2025-11-18 10:41:21,465 >>   Total optimization steps = 5,730
+[INFO|trainer.py:2528] 2025-11-18 10:41:21,469 >>   Number of trainable parameters = 161,480,704
+  0%|          | 0/5730 [00:00<?, ?it/s]  0%|          | 1/5730 [00:04<7:38:05,  4.80s/it]  0%|          | 2/5730 [00:09<7:35:14,  4.77s/it]  0%|          | 3/5730 [00:14<7:23:06,  4.64s/it]  0%|          | 4/5730 [00:18<7:01:24,  4.42s/it]  0%|          | 5/5730 [00:22<6:53:05,  4.33s/it]  0%|          | 6/5730 [00:26<6:48:55,  4.29s/it]  0%|          | 7/5730 [00:30<6:49:31,  4.29s/it]  0%|          | 8/5730 [00:35<6:52:19,  4.32s/it]  0%|          | 9/5730 [00:39<7:00:21,  4.41s/it]  0%|          | 10/5730 [00:44<7:09:15,  4.50s/it]                                                     0%|          | 10/5730 [00:44<7:09:15,  4.50s/it]  0%|          | 11/5730 [00:48<6:58:28,  4.39s/it]  0%|          | 12/5730 [00:52<6:50:43,  4.31s/it]  0%|          | 13/5730 [00:56<6:47:07,  4.27s/it]  0%|          | 14/5730 [01:01<6:42:20,  4.22s/it]  0%|          | 15/5730 [01:05<6:42:38,  4.23s/it]  0%|          | 16/5730 [01:09<6:47:43,  4.28s/it]  0%|          | 17/5730 [01:13<6:36:56,  4.17s/it]  0%|          | 18/5730 [01:17<6:37:18,  4.17s/it]  0%|          | 19/5730 [01:22<6:46:21,  4.27s/it]  0%|          | 20/5730 [01:26<6:54:57,  4.36s/it]                                                     0%|          | 20/5730 [01:26<6:54:57,  4.36s/it]  0%|          | 21/5730 [01:31<7:06:50,  4.49s/it]  0%|          | 22/5730 [01:36<7:03:32,  4.45s/it]  0%|          | 23/5730 [01:40<7:07:26,  4.49s/it]  0%|          | 24/5730 [01:44<6:54:43,  4.36s/it]  0%|          | 25/5730 [01:49<6:57:39,  4.39s/it]  0%|          | 26/5730 [01:53<7:11:24,  4.54s/it]  0%|          | 27/5730 [01:58<7:02:37,  4.45s/it]  0%|          | 28/5730 [02:02<6:57:28,  4.39s/it]  1%|          | 29/5730 [02:06<7:00:15,  4.42s/it]  1%|          | 30/5730 [02:11<7:00:47,  4.43s/it]                                                     1%|          | 30/5730 [02:11<7:00:47,  4.43s/it]  1%|          | 31/5730 [02:15<6:52:35,  4.34s/it]  1%|          | 32/5730 [02:19<6:52:20,  4.34s/it]  1%|          | 33/5730 [02:24<7:02:55,  4.45s/it]  1%|          | 34/5730 [02:29<7:03:35,  4.46s/it]  1%|          | 35/5730 [02:33<7:02:55,  4.46s/it]  1%|          | 36/5730 [02:37<6:49:26,  4.31s/it]  1%|          | 37/5730 [02:42<7:08:46,  4.52s/it]  1%|          | 38/5730 [02:46<6:49:38,  4.32s/it]  1%|          | 39/5730 [02:50<6:56:52,  4.40s/it]  1%|          | 40/5730 [02:54<6:44:45,  4.27s/it]                                                     1%|          | 40/5730 [02:54<6:44:45,  4.27s/it]  1%|          | 41/5730 [02:58<6:31:38,  4.13s/it]  1%|          | 42/5730 [03:03<6:48:33,  4.31s/it]  1%|          | 43/5730 [03:08<7:12:28,  4.56s/it]  1%|          | 44/5730 [03:12<7:02:52,  4.46s/it]  1%|          | 45/5730 [03:16<6:52:26,  4.35s/it]  1%|          | 46/5730 [03:21<6:49:30,  4.32s/it]  1%|          | 47/5730 [03:25<6:48:57,  4.32s/it]  1%|          | 48/5730 [03:29<6:48:10,  4.31s/it]  1%|          | 49/5730 [03:34<6:45:35,  4.28s/it]  1%|          | 50/5730 [03:38<6:47:53,  4.31s/it]                                                     1%|          | 50/5730 [03:38<6:47:53,  4.31s/it]

@@ -11,8 +11,8 @@ RESULT_ROOT = os.path.join(AFFECTGPT_ROOT, 'output/results')
 ## 所有模型的存储路径
 #######################
 PATH_TO_LLM = {
-    'Qwen25': '/home/project/Dataset/Emotion/tools/transformer/LLM/Qwen2.5-3B-Instruct'
-    # 'Qwen25': '/home/project/Dataset/Emotion/tools/transformer/LLM/Qwen2.5-7B-Instruct',
+    # 'Qwen25': '/home/project/Dataset/Emotion/tools/transformer/LLM/Qwen2.5-3B-Instruct'
+    'Qwen25': '/home/project/Dataset/Emotion/tools/transformer/LLM/Qwen2.5-7B-Instruct',
 }
 
 PATH_TO_VISUAL = {
@@ -122,4 +122,5 @@ DEFAULT_AUDIO_PATCH_TOKEN = '<AudioHere>'
 DEFAULT_FRAME_PATCH_TOKEN = '<FrameHere>'
 DEFAULT_FACE_PATCH_TOKEN  = '<FaceHere>'
 DEFAULT_MULTI_PATCH_TOKEN = '<MultiHere>'
+DEFAULT_AU_PATCH_TOKEN    = '<AUHere>'
 IGNORE_INDEX = -100

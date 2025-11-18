@@ -1,0 +1,49 @@
+# AU Agent微调配置（使用LLaMA-Factory）
+# 基于Qwen2.5-7B-Instruct微调
+
+### 模型配置
+model_name_or_path: /home/project/Dataset/Emotion/tools/transformer/LLM/Qwen2.5-7B-Instruct
+trust_remote_code: true
+
+### LoRA配置
+peft_type: lora
+lora_rank: 64
+lora_alpha: 128
+lora_dropout: 0.05
+lora_target: all  # 针对Qwen2.5所有attention层
+
+### 数据配置
+dataset: au_instruction_dataset  # 需要在LLaMA-Factory的data目录下注册
+template: qwen  # Qwen模板
+cutoff_len: 1024  # 最大序列长度
+preprocessing_num_workers: 16
+
+### 训练配置
+stage: sft  # Supervised Fine-Tuning
+do_train: true
+finetuning_type: lora
+
+### 训练超参数
+output_dir: ./output/au_agent_qwen2.5_7b_lora
+overwrite_output_dir: true
+per_device_train_batch_size: 4
+per_device_eval_batch_size: 4
+gradient_accumulation_steps: 4
+learning_rate: 5.0e-5
+num_train_epochs: 3
+lr_scheduler_type: cosine
+warmup_steps: 100
+logging_steps: 10
+save_steps: 500
+eval_steps: 500
+evaluation_strategy: steps
+save_strategy: steps
+save_total_limit: 3
+bf16: true  # 使用bf16精度
+gradient_checkpointing: true
+
+### 其他配置
+report_to: tensorboard
+load_best_model_at_end: true
+metric_for_best_model: eval_loss
+ddp_find_unused_parameters: false

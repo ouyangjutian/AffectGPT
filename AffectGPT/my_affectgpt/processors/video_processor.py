@@ -25,8 +25,159 @@ from my_affectgpt.common.registry import registry
 MAX_INT = registry.get("MAX_INT")
 decord.bridge.set_bridge("torch")
 
+
+def _load_au_info(video_name, mer_factory_output):
+    """从MER-Factory的JSON文件加载au_info
+    
+    Args:
+        video_name: 视频名称（不含扩展名）
+        mer_factory_output: MER-Factory输出根目录
+    
+    Returns:
+        au_info字典，如果文件不存在或无au_info则返回None
+    """
+    import json
+    from pathlib import Path
+    
+    if not mer_factory_output:
+        return None
+    
+    # 构建JSON文件路径
+    json_path = Path(mer_factory_output) / video_name / f"{video_name}_au_analysis.json"
+    
+    if not json_path.exists():
+        return None
+    
+    try:
+        with open(json_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return data.get('au_info')
+    except Exception:
+        return None
+
+
+def _calculate_smart_frame_indices(au_info, total_video_frames):
+    """根据au_info智能计算需要采样的8帧索引
+    
+    Args:
+        au_info: au_info字典
+        total_video_frames: 视频总帧数
+    
+    Returns:
+        sorted list of 8 frame indices (0-indexed)
+    """
+    if not au_info or 'peak_frames' not in au_info or len(au_info['peak_frames']) == 0:
+        # 无au_info，回退到均匀采样
+        indices = np.linspace(0, total_video_frames - 1, 8).astype(int).tolist()
+        return sorted(indices)
+    
+    # 获取第一个峰值帧信息
+    peak_info = au_info['peak_frames'][0]
+    peak_index = peak_info['peak_index']
+    frames_before = peak_info['frames_before_peak']
+    frames_after = peak_info['frames_after_peak']
+    total_frames = au_info['total_frames']
+    
+    selected_indices = set()
+    selected_indices.add(peak_index)
+    
+    # 根据策略选择邻近帧
+    if frames_before >= 2 and frames_after >= 2:
+        if peak_index >= 1:
+            selected_indices.add(peak_index - 1)
+        if peak_index >= 2:
+            selected_indices.add(peak_index - 2)
+        if peak_index + 1 < total_frames:
+            selected_indices.add(peak_index + 1)
+        if peak_index + 2 < total_frames:
+            selected_indices.add(peak_index + 2)
+        remaining_needed = 8 - len(selected_indices)
+    elif (frames_before == 1 and frames_after >= 2) or (frames_before >= 2 and frames_after == 1):
+        if frames_before == 1:
+            if peak_index >= 1:
+                selected_indices.add(peak_index - 1)
+            if peak_index + 1 < total_frames:
+                selected_indices.add(peak_index + 1)
+            if peak_index + 2 < total_frames:
+                selected_indices.add(peak_index + 2)
+        else:
+            if peak_index + 1 < total_frames:
+                selected_indices.add(peak_index + 1)
+            if peak_index >= 1:
+                selected_indices.add(peak_index - 1)
+            if peak_index >= 2:
+                selected_indices.add(peak_index - 2)
+        remaining_needed = 8 - len(selected_indices)
+    elif frames_before == 1 and frames_after == 1:
+        if peak_index >= 1:
+            selected_indices.add(peak_index - 1)
+        if peak_index + 1 < total_frames:
+            selected_indices.add(peak_index + 1)
+        remaining_needed = 8 - len(selected_indices)
+    elif frames_before == 0 or frames_after == 0:
+        if frames_before == 0:
+            if peak_index + 1 < total_frames:
+                selected_indices.add(peak_index + 1)
+            if peak_index + 2 < total_frames:
+                selected_indices.add(peak_index + 2)
+        else:
+            if peak_index >= 1:
+                selected_indices.add(peak_index - 1)
+            if peak_index >= 2:
+                selected_indices.add(peak_index - 2)
+        remaining_needed = 8 - len(selected_indices)
+    else:
+        remaining_needed = 8 - len(selected_indices)
+    
+    # 从未选择的帧中均匀采样
+    if remaining_needed > 0:
+        available_indices = [i for i in range(total_frames) if i not in selected_indices]
+        if len(available_indices) > 0:
+            if len(available_indices) <= remaining_needed:
+                selected_indices.update(available_indices)
+            else:
+                step = len(available_indices) / remaining_needed
+                for i in range(remaining_needed):
+                    idx = int(i * step)
+                    if idx < len(available_indices):
+                        selected_indices.add(available_indices[idx])
+    
+    # 确保有8帧
+    while len(selected_indices) < 8 and len(selected_indices) < total_frames:
+        available = [i for i in range(total_frames) if i not in selected_indices]
+        if available:
+            selected_indices.add(available[0])
+        else:
+            break
+    
+    # 如果还不够8帧，循环重复
+    result_indices = sorted(list(selected_indices))
+    if len(result_indices) < 8:
+        original_indices = result_indices.copy()
+        while len(result_indices) < 8:
+            for idx in original_indices:
+                if len(result_indices) >= 8:
+                    break
+                result_indices.append(idx)
+        result_indices.sort()
+    
+    return result_indices[:8]
+
+
 ## video -> sampled frames
-def load_video(video_path, n_frms=MAX_INT, height=-1, width=-1, sampling="uniform", return_msg=False):
+def load_video(video_path, n_frms=MAX_INT, height=-1, width=-1, sampling="uniform", return_msg=False, 
+               video_name=None, mer_factory_output=None):
+    """加载视频并采样帧
+    
+    Args:
+        video_path: 视频文件路径
+        n_frms: 采样帧数
+        height, width: 目标尺寸
+        sampling: 采样策略 (uniform/headtail/emotion_peak)
+        return_msg: 是否返回消息
+        video_name: 视频名称（用于emotion_peak模式加载au_info）
+        mer_factory_output: MER-Factory输出目录（用于emotion_peak模式）
+    """
     decord.bridge.set_bridge("torch")
     vr = VideoReader(uri=video_path, height=height, width=width)
 
@@ -41,11 +192,23 @@ def load_video(video_path, n_frms=MAX_INT, height=-1, width=-1, sampling="unifor
         indices_h = sorted(rnd.sample(range(vlen // 2), n_frms_update // 2))
         indices_t = sorted(rnd.sample(range(vlen // 2, vlen), n_frms_update // 2))
         indices = indices_h + indices_t
-    elif sampling == "emotion_peak": # 情感峰值帧采样 - 选择中间帧作为峰值帧
-        # 选择视频中间位置的帧作为情感峰值帧
-        peak_index = vlen // 2
-        indices = [peak_index]
-        n_frms_update = 1  # 强制设置为1帧
+    elif sampling == "emotion_peak": # 情感峰值帧采样 - 基于au_info的智能8帧
+        # 如果提供了video_name和mer_factory_output，使用智能采样
+        if video_name and mer_factory_output:
+            au_info = _load_au_info(video_name, mer_factory_output)
+            if au_info:
+                indices = _calculate_smart_frame_indices(au_info, vlen)
+                n_frms_update = len(indices)
+            else:
+                # 无au_info，回退到中间帧
+                peak_index = vlen // 2
+                indices = [peak_index]
+                n_frms_update = 1
+        else:
+            # 简化版本：只取中间帧
+            peak_index = vlen // 2
+            indices = [peak_index]
+            n_frms_update = 1
     else:
         raise NotImplementedError
 

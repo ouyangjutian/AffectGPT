@@ -54,6 +54,7 @@ class BaseDataset():
         self.num_audio_query_token = model_cfg.num_audio_query_token
         self.num_multi_query_token = model_cfg.num_multi_query_token
         self.num_image_query_token = model_cfg.num_image_query_token
+        self.num_au_query_token = getattr(model_cfg, 'num_au_query_token', 8)  # AU query token数量，默认8
 
         ## 控制视频采样的帧数
         self.n_frms = model_cfg.vis_processor.train.n_frms
@@ -61,9 +62,62 @@ class BaseDataset():
         # Frame采样配置 - 可以通过dataset_cfg覆盖
         self.frame_n_frms = getattr(dataset_cfg, 'frame_n_frms', self.n_frms)  # Frame帧数，默认与n_frms相同
         self.frame_sampling = getattr(dataset_cfg, 'frame_sampling', 'uniform')  # Frame采样策略，默认uniform
+        
+        # MER-Factory输出路径 - 用于emotion_peak智能采样和AU实时处理
+        self.mer_factory_output = getattr(dataset_cfg, 'mer_factory_output', None)
+        
+        # CLIP模型（用于AU实时编码） - 懒加载
+        self._clip_model = None
+        self._clip_preprocess = None
+        
+        # 预提取特征配置 - 从dataset_cfg获取
+        self.use_preextracted_features = getattr(dataset_cfg, 'use_preextracted_features', False)
+        self.preextracted_root = getattr(dataset_cfg, 'preextracted_root', None)
+        self.visual_encoder = getattr(dataset_cfg, 'visual_encoder', 'CLIP_VIT_LARGE')
+        self.acoustic_encoder = getattr(dataset_cfg, 'acoustic_encoder', 'HUBERT_LARGE')
+        self.clips_per_video = getattr(dataset_cfg, 'clips_per_video', 8)
+        
+        # 🎯 实时特征提取配置 - 从dataset_cfg获取
+        self.use_realtime_extraction = getattr(dataset_cfg, 'use_realtime_extraction', False)
+        self.extraction_server_host = getattr(dataset_cfg, 'extraction_server_host', 'localhost')
+        self.extraction_server_port = getattr(dataset_cfg, 'extraction_server_port', 12345)
+        self.feature_client = None
+        
+        # 初始化实时特征提取客户端
+        if self.use_realtime_extraction:
+            try:
+                from simple_feature_client import SimpleFeatureClient
+                self.feature_client = SimpleFeatureClient(
+                    server_host=self.extraction_server_host,
+                    server_port=self.extraction_server_port
+                )
+                if self.feature_client.connect():
+                    print(f'[DATASET] 实时特征提取客户端已连接: {self.extraction_server_host}:{self.extraction_server_port}')
+                else:
+                    print(f'[DATASET] 实时特征提取客户端连接失败，将回退到实时处理模式')
+                    self.feature_client = None
+                    self.use_realtime_extraction = False
+            except ImportError as e:
+                print(f'[DATASET] 无法导入实时特征提取客户端: {e}')
+                self.feature_client = None
+                self.use_realtime_extraction = False
+        
         print(f'====== Frame Sampling Config ======')
         print(f'Frame frames: {self.frame_n_frms}, Frame sampling: {self.frame_sampling}')
         print(f'Face frames: {self.n_frms}, Face sampling: uniform')
+        
+        if self.use_realtime_extraction:
+            print(f'[DATASET] 实时特征提取模式已启用')
+            print(f'Client status: {"Connected" if self.feature_client else "Failed"}')
+        elif self.use_preextracted_features:
+            print(f'====== Preextracted Features Config ======')
+            print(f'🎯 Preextracted mode: ENABLED')
+            print(f'Root: {self.preextracted_root}')
+            print(f'Visual encoder: {self.visual_encoder}')
+            print(f'Acoustic encoder: {self.acoustic_encoder}')
+            print(f'Clips per video: {self.clips_per_video}')
+        else:
+            print(f'🔄 Real-time mode: ENABLED')
 
         # 这里token的设置和 affectgpt.py 中的一致 (所以这部分调用改成全局调用了)
         self.tokenizer = load_tokenizer_from_LLM(model_cfg.llama_model)
@@ -170,15 +224,17 @@ class BaseDataset():
         elif face_or_frame == 'frameonly': # (frame)
             needed_data = ['frame']
         elif face_or_frame == 'multiface_text': # (multi, text)
-            needed_data = ['face', 'audio']
+            needed_data = ['face', 'audio', 'multi']
         elif face_or_frame == 'multiface_audio_face_text': # (multi, face, audio, text)
-            needed_data = ['face', 'audio']
+            needed_data = ['face', 'audio', 'multi']
         elif face_or_frame == 'image': # (image)
             needed_data = ['image']
         elif face_or_frame == 'multiframe_audio_frame_text': # (multi, face, audio, text)
-            needed_data = ['frame', 'audio']
+            needed_data = ['frame', 'audio', 'multi']
         elif face_or_frame == 'multiface_audio_face_frame_text': # (multi, face, audio, text)
-            needed_data = ['frame', 'face', 'audio']
+            needed_data = ['frame', 'face', 'audio', 'multi']
+        elif face_or_frame == 'multiface_audio_face_frame_au_text': # (multi, face, audio, au, text)
+            needed_data = ['frame', 'face', 'audio', 'au', 'multi']
         elif face_or_frame == 'audio_text': # (audio, text)
             needed_data = ['audio']
         elif face_or_frame == 'face_text': # (face, text)
@@ -188,54 +244,277 @@ class BaseDataset():
         return needed_data
     
 
-    def read_frame_face_audio_text(self, video_path=None, face_npy=None, audio_path=None, image_path=None):
+    def read_frame_face_audio_text(self, video_path=None, face_npy=None, audio_path=None, image_path=None, sample_name=None):
 
         sample_data = {}
 
+        # 检查是否使用预提取特征模式 (推理时可能不存在这些属性)
+        use_preextracted = getattr(self, 'use_preextracted_features', False)
+        preextracted_root = getattr(self, 'preextracted_root', None)
+
         # step1: read (raw_frame, frame) - 可配置的Frame采样策略
         frame, raw_frame = None, None
-        if video_path is not None and 'frame' in self.needed_data:
-            # 使用配置参数控制Frame采样策略和帧数
-            frame_n_frms = getattr(self, 'frame_n_frms', self.n_frms)  # 默认使用n_frms
-            frame_sampling = getattr(self, 'frame_sampling', 'uniform')  # 默认使用uniform采样
-            
-            raw_frame, msg = load_video(
-                video_path=video_path,
-                n_frms = frame_n_frms,
-                height = 224,
-                width  = 224,
-                sampling = frame_sampling,
-                return_msg = True
-            )
-            frame = self.vis_processor.transform(raw_frame) # [3, frame_n_frms, 224, 224]
-        sample_data['frame'] = frame
-        sample_data['raw_frame'] = raw_frame
-        # print (sample_data)
+        if 'frame' in self.needed_data:
+            # 🎯 新增：检查是否使用实时特征提取服务
+            if hasattr(self, 'use_realtime_extraction') and self.use_realtime_extraction:
+                # 实时特征提取模式 - 通过服务提取特征（保持数据增强）
+                if hasattr(self, 'feature_client') and self.feature_client:
+                    realtime_features = self.feature_client.extract_features(
+                        sample_name=sample_name,
+                        modalities=['frame'],
+                        video_path=video_path,
+                        n_frms=getattr(self, 'frame_n_frms', self.n_frms),
+                        frame_sampling=getattr(self, 'frame_sampling', 'uniform')
+                    )
+                    if realtime_features and 'frame' in realtime_features:
+                        frame_features = realtime_features['frame']  # [T, D] - 编码器输出特征
+                        frame = torch.from_numpy(frame_features).float()
+                        raw_frame = frame  # 分布式模式下使用相同数据
+                        sample_data['frame_preextracted'] = True  # 标记为已提取特征（编码器输出）
+                        pass  # 特征提取成功
+                    else:
+                        print(f"⚠️ 实时Frame特征提取失败: {sample_name}")
+            elif use_preextracted and preextracted_root and sample_name:
+                # 预提取特征模式 - 直接加载.npy特征文件
+                frame_n_frms = getattr(self, 'frame_n_frms', 1)
+                frame_sampling = getattr(self, 'frame_sampling', 'uniform')
+                visual_encoder = getattr(self, 'visual_encoder', 'CLIP_VIT_LARGE')
+                
+                frame_feat_dir = f'frame_{visual_encoder}_{frame_sampling}_{frame_n_frms}frms'
+                frame_feat_path = os.path.join(preextracted_root, frame_feat_dir, f'{sample_name}.npy')
+                
+                if os.path.exists(frame_feat_path):
+                    frame_features = np.load(frame_feat_path)  # [T, D]
+                    frame = torch.from_numpy(frame_features).float()  # 转换为tensor
+                    raw_frame = frame  # 预提取模式下raw_frame与frame相同
+                else:
+                    # 预提取特征文件不存在，将使用实时处理模式
+                    pass
+            else:
+                # 实时处理模式 - 原有逻辑
+                if video_path is not None:
+                    frame_n_frms = getattr(self, 'frame_n_frms', self.n_frms)  # 默认使用n_frms
+                    frame_sampling = getattr(self, 'frame_sampling', 'uniform')  # 默认使用uniform采样
+                    mer_factory_output = getattr(self, 'mer_factory_output', None)  # MER-Factory输出路径
+                    
+                    # 提取video_name（不含扩展名）
+                    video_name = None
+                    if sample_name:
+                        video_name = sample_name
+                    elif video_path:
+                        video_name = os.path.splitext(os.path.basename(video_path))[0]
+                    
+                    raw_frame, msg = load_video(
+                        video_path=video_path,
+                        n_frms=frame_n_frms,
+                        height=224,
+                        width=224,
+                        sampling=frame_sampling,
+                        return_msg=True,
+                        video_name=video_name,  # 传递video_name用于智能采样
+                        mer_factory_output=mer_factory_output  # 传递MER-Factory路径
+                    )
+                    frame = self.vis_processor.transform(raw_frame) # [3, frame_n_frms, 224, 224]
+        # 只有当frame特征有效时才添加到样本中
+        if frame is not None:
+            sample_data['frame'] = frame
+            sample_data['raw_frame'] = raw_frame
+        else:
+            # Frame特征无效，如果需要Frame模态则跳过此样本
+            if 'frame' in self.needed_data:
+                print(f"⚠️ Frame特征无效，跳过样本: {sample_name}")
+                return None  # 返回None表示此样本无效，需要重新选择
+            # 确保frame相关的标志也不设置
+            if 'frame_preextracted' in sample_data:
+                del sample_data['frame_preextracted']
 
         # step2: read (raw_face, face)
         face, raw_face = None, None
-        if face_npy is not None and 'face' in self.needed_data:
-            raw_face, msg = load_face(
-                face_npy=face_npy,
-                n_frms = self.n_frms,
-                height = 224,
-                width  = 224,
-                sampling ="uniform",
-                return_msg=True
-            )
-            face = self.vis_processor.transform(raw_face) # [3, 8, 224, 224] # 建议可视化，看看这部分数据扩增是否合适
-        sample_data['face'] = face
-        sample_data['raw_face'] = raw_face
-        # print (sample_data)
+        if 'face' in self.needed_data:
+            # 🎯 新增：检查是否使用实时特征提取服务
+            if hasattr(self, 'use_realtime_extraction') and self.use_realtime_extraction:
+                # 实时特征提取模式 - 通过服务提取特征（保持数据增强）
+                if hasattr(self, 'feature_client') and self.feature_client:
+                    realtime_features = self.feature_client.extract_features(
+                        sample_name=sample_name,
+                        modalities=['face'],
+                        face_path=face_npy,
+                        n_frms=self.n_frms
+                    )
+                    if realtime_features and 'face' in realtime_features:
+                        face_features = realtime_features['face']  # [T, D] - 编码器输出特征
+                        face = torch.from_numpy(face_features).float()
+                        raw_face = face  # 分布式模式下使用相同数据
+                        sample_data['face_preextracted'] = True  # 标记为已提取特征（编码器输出）
+                        pass  # 特征提取成功
+                    else:
+                        print(f"⚠️ 实时Face特征提取失败: {sample_name}")
+            elif use_preextracted and preextracted_root and sample_name:
+                # 预提取特征模式 - 直接加载.npy特征文件
+                visual_encoder = getattr(self, 'visual_encoder', 'CLIP_VIT_LARGE')
+                n_frms = getattr(self, 'n_frms', 8)
+                face_feat_dir = f'face_{visual_encoder}_{n_frms}frms'
+                face_feat_path = os.path.join(preextracted_root, face_feat_dir, f'{sample_name}.npy')
+                
+                if os.path.exists(face_feat_path):
+                    face_features = np.load(face_feat_path)  # [T, D]
+                    face = torch.from_numpy(face_features).float()  # 转换为tensor
+                    raw_face = face  # 预提取模式下raw_face与face相同
+                    sample_data['face_preextracted'] = True  # 标记为预提取特征
+                else:
+                    # 预提取特征文件不存在，将使用实时处理模式
+                    pass
+            else:
+                # 实时处理模式 - 原有逻辑
+                if face_npy is not None:
+                    raw_face, msg = load_face(
+                        face_npy=face_npy,
+                        n_frms = self.n_frms,
+                        height = 224,
+                        width  = 224,
+                        sampling ="uniform",
+                        return_msg=True
+                    )
+                    face = self.vis_processor.transform(raw_face) # [3, 8, 224, 224]
+        # 只有当face特征有效时才添加到样本中
+        if face is not None:
+            sample_data['face'] = face
+            sample_data['raw_face'] = raw_face
+        else:
+            # Face特征无效，不添加到样本中
+            print(f"⚠️ Face特征无效，跳过Face模态: {sample_name}")
+            # 确保face相关的标志也不设置
+            if 'face_preextracted' in sample_data:
+                del sample_data['face_preextracted']
 
         # step3: read audio [需要针对没有 audio track 的 video 进行额外处理]
         audio, raw_audio = None, None
-        if audio_path is not None and 'audio' in self.needed_data:
-            raw_audio = load_audio([audio_path], "cpu", clips_per_video=8)[0] # [8, 1, 16000*2s]
-            audio = transform_audio(raw_audio, "cpu") # [8, 1, 128, 204]
-        sample_data['audio'] = audio
-        sample_data['raw_audio'] = raw_audio
-        # print (sample_data)
+        if 'audio' in self.needed_data:
+            # 🎯 新增：检查是否使用实时特征提取服务
+            if hasattr(self, 'use_realtime_extraction') and self.use_realtime_extraction:
+                # 实时特征提取模式 - 通过服务提取特征（保持数据增强）
+                if hasattr(self, 'feature_client') and self.feature_client:
+                    realtime_features = self.feature_client.extract_features(
+                        sample_name=sample_name,
+                        modalities=['audio'],
+                        audio_path=audio_path,
+                        clips_per_video=self.clips_per_video
+                    )
+                    if realtime_features and 'audio' in realtime_features:
+                        audio_features = realtime_features['audio']  # [T, D] - 编码器输出特征
+                        audio = torch.from_numpy(audio_features).float()
+                        raw_audio = audio  # 分布式模式下使用相同数据
+                        sample_data['audio_preextracted'] = True  # 标记为已提取特征（编码器输出）
+                        pass  # 特征提取成功
+                    else:
+                        print(f"⚠️ 实时Audio特征提取失败: {sample_name}")
+            elif use_preextracted and preextracted_root and sample_name:
+                # 预提取特征模式 - 直接加载.npy特征文件
+                acoustic_encoder = getattr(self, 'acoustic_encoder', 'HUBERT_LARGE')
+                clips_per_video = getattr(self, 'clips_per_video', 8)
+                audio_feat_dir = f'audio_{acoustic_encoder}_{clips_per_video}clips'
+                audio_feat_path = os.path.join(preextracted_root, audio_feat_dir, f'{sample_name}.npy')
+                
+                if os.path.exists(audio_feat_path):
+                    audio_features = np.load(audio_feat_path)  # [T, D]
+                    audio = torch.from_numpy(audio_features).float()  # 转换为tensor
+                    raw_audio = audio  # 预提取模式下raw_audio与audio相同
+                else:
+                    # 预提取特征文件不存在，将使用实时处理模式
+                    pass
+            else:
+                # 实时处理模式 - 原有逻辑
+                if audio_path is not None:
+                    raw_audio = load_audio([audio_path], "cpu", clips_per_video=8)[0] # [8, 1, 16000*2s]
+                    audio = transform_audio(raw_audio, "cpu") # [8, 1, 128, 204]
+        # 只有当audio特征有效时才添加到样本中
+        if audio is not None:
+            sample_data['audio'] = audio
+            sample_data['raw_audio'] = raw_audio
+        else:
+            # Audio特征无效，不添加到样本中
+            print(f"⚠️ Audio特征无效，跳过Audio模态: {sample_name}")
+            # 确保audio相关的标志也不设置
+            if 'audio_preextracted' in sample_data:
+                del sample_data['audio_preextracted']
+        
+        # step4: read multi features (Face+Audio融合特征)
+        multi, raw_multi = None, None
+        if 'multi' in self.needed_data:
+            if use_preextracted and preextracted_root and sample_name:
+                # 预提取Multi特征模式 - 直接加载融合后的特征
+                visual_encoder = getattr(self, 'visual_encoder', 'CLIP_VIT_LARGE')
+                acoustic_encoder = getattr(self, 'acoustic_encoder', 'HUBERT_LARGE')
+                # 优先尝试完整版本，如果不存在则尝试简化版本（向后兼容）
+                multi_feat_dir_complete = f'multi_{visual_encoder}_{acoustic_encoder}_complete'
+                multi_feat_dir_simple = f'multi_{visual_encoder}_{acoustic_encoder}_simple'
+                
+                # 检查完整版本目录是否存在
+                multi_feat_path_complete = os.path.join(preextracted_root, multi_feat_dir_complete, f'{sample_name}.npy')
+                multi_feat_path_simple = os.path.join(preextracted_root, multi_feat_dir_simple, f'{sample_name}.npy')
+                
+                if os.path.exists(multi_feat_path_complete):
+                    multi_feat_path = multi_feat_path_complete
+                elif os.path.exists(multi_feat_path_simple):
+                    multi_feat_path = multi_feat_path_simple
+                else:
+                    multi_feat_path = multi_feat_path_complete  # 默认使用完整版本路径
+                
+                if os.path.exists(multi_feat_path):
+                    multi_features = np.load(multi_feat_path)  # [D]
+                    multi = torch.from_numpy(multi_features).float()  # 转换为tensor
+                    raw_multi = multi  # 预提取模式下raw_multi与multi相同
+                else:
+                    # 预提取特征文件不存在，Multi特征将在模型中动态融合
+                    pass
+            # 注意：实时模式下Multi特征是在模型中动态融合的，不在这里处理
+        sample_data['multi'] = multi
+        sample_data['raw_multi'] = raw_multi
+        
+        # step5: read AU features
+        au, raw_au = None, None
+        if 'au' in self.needed_data:
+            # 模式1: 预提取特征模式（训练常用）
+            if use_preextracted and preextracted_root and sample_name:
+                au_feat_dir = 'au_CLIP_VITB32_8frms'  # AU特征目录
+                au_feat_path = os.path.join(preextracted_root, au_feat_dir, f'{sample_name}.npy')
+                
+                if os.path.exists(au_feat_path):
+                    au_features = np.load(au_feat_path)  # [T, 512] CLIP text encoder输出
+                    au = torch.from_numpy(au_features).float()  # 转换为tensor
+                    raw_au = au  # 预提取模式下raw_au与au相同
+                else:
+                    print(f"⚠️ AU特征文件不存在: {au_feat_path}")
+            
+            # 模式2: 实时处理模式（推理常用）
+            else:
+                # 从video_path或sample_name提取video_name
+                video_name = None
+                if sample_name:
+                    video_name = sample_name
+                elif video_path:
+                    video_name = os.path.splitext(os.path.basename(video_path))[0]
+                
+                if video_name and self.mer_factory_output:
+                    # 实时从MER-Factory输出提取并编码AU特征
+                    au = self._extract_au_features_realtime(video_name)
+                    raw_au = au  # 实时模式下raw_au与au相同
+                    if au is None:
+                        print(f"⚠️ AU实时处理失败，需要MER-Factory输出: {video_name}")
+                else:
+                    if 'au' in self.needed_data:
+                        print(f"⚠️ AU实时处理需要video_name和mer_factory_output配置")
+        
+        sample_data['au'] = au
+        sample_data['raw_au'] = raw_au
+        
+        # 设置预提取标志
+        # 在分布式实时提取模式下，特征来自服务端，也算作"预提取"
+        sample_data['frame_preextracted'] = (use_preextracted and 'frame' in self.needed_data) or (self.use_realtime_extraction and 'frame' in self.needed_data)
+        sample_data['face_preextracted'] = (use_preextracted and 'face' in self.needed_data) or (self.use_realtime_extraction and 'face' in self.needed_data)
+        sample_data['audio_preextracted'] = (use_preextracted and 'audio' in self.needed_data) or (self.use_realtime_extraction and 'audio' in self.needed_data)
+        sample_data['multi_preextracted'] = use_preextracted and 'multi' in self.needed_data
+        sample_data['au_preextracted'] = use_preextracted and 'au' in self.needed_data
         
         # step4: read image
         image, raw_image = None, None
@@ -556,7 +835,93 @@ class BaseDataset():
                     + f"Meanwhile, we uniformly sample raw frames from the video: <Video><FrameHere></Video>. "  \
                     + f"The subtitle of this video is: <Subtitle>{subtitle}</Subtitle>. " \
                     + f"Now, please answer my question based on all the provided information. {user_message} ###Assistant: "
+        elif face_or_frame == 'multiface_audio_face_frame_au_text': # (multi, frame, face, audio, au, text)
+            assert subtitle is not None
+            prompt = f"###Human: The audio and video merged info is: <Multi><MultiHere></Multi>. " \
+                    + f"The audio content is as follows: <Audio><AudioHere></Audio>. " \
+                    + f"Meanwhile, we uniformly sample raw frames from the video and extract faces from these frames: <Video><FaceHere></Video>. "  \
+                    + f"Meanwhile, we uniformly sample raw frames from the video: <Video><FrameHere></Video>. "  \
+                    + f"The AU (Action Unit) features are: <AU><AUHere></AU>. " \
+                    + f"The subtitle of this video is: <Subtitle>{subtitle}</Subtitle>. " \
+                    + f"Now, please answer my question based on all the provided information. {user_message} ###Assistant: "
         return prompt
+    
+    def _load_clip_for_au(self):
+        """懒加载CLIP模型用于AU实时编码"""
+        # 防御性检查：确保属性存在
+        if not hasattr(self, '_clip_model'):
+            self._clip_model = None
+            self._clip_preprocess = None
+        
+        if self._clip_model is None:
+            try:
+                import clip
+                device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+                self._clip_model, self._clip_preprocess = clip.load('ViT-B/32', device=device)
+                self._clip_model.eval()
+            except Exception as e:
+                print(f'[DATASET] 无法加载CLIP模型: {e}')
+                self._clip_model = False  # 标记加载失败
+        return self._clip_model if self._clip_model else None
+    
+    def _extract_au_features_realtime(self, video_name):
+        """实时从MER-Factory输出提取AU特征并用CLIP编码
+        
+        Args:
+            video_name: 视频名称（不含扩展名）
+        
+        Returns:
+            au_features: [N, 512] CLIP编码的AU描述特征，N为帧数
+        """
+        if not self.mer_factory_output or not video_name:
+            return None
+        
+        # 懒加载CLIP模型
+        clip_model = self._load_clip_for_au()
+        if clip_model is None:
+            return None
+        
+        try:
+            import json
+            import clip
+            from pathlib import Path
+            
+            # 构建JSON文件路径
+            json_path = Path(self.mer_factory_output) / video_name / f"{video_name}_au_analysis.json"
+            
+            if not json_path.exists():
+                print(f"⚠️ AU分析文件不存在: {json_path}")
+                return None
+            
+            # 加载JSON数据
+            with open(json_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            fine_grained_descriptions = data.get('fine_grained_descriptions', {})
+            
+            if not fine_grained_descriptions:
+                print(f"⚠️ AU JSON中没有fine_grained_descriptions: {video_name}")
+                return None
+            
+            # 准备文本列表
+            frame_indices = sorted(fine_grained_descriptions.keys(), key=int)
+            texts = [fine_grained_descriptions[idx] for idx in frame_indices]
+            
+            # 使用CLIP编码
+            device = next(clip_model.parameters()).device
+            text_tokens = clip.tokenize(texts, truncate=True).to(device)
+            
+            with torch.no_grad():
+                text_features = clip_model.encode_text(text_tokens)  # [N, 512]
+                # 归一化特征向量
+                text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+                text_features = text_features.float()  # 保持为tensor
+            
+            return text_features
+        
+        except Exception as e:
+            print(f"❌ AU实时提取失败 ({video_name}): {e}")
+            return None
     
     ## 替换 <FaceHere> / <FrameHere> / <AudioHere> / <ImageHere> / <MultiToken>
     def replace_token_for_multimodal(self, prompt):
@@ -571,6 +936,8 @@ class BaseDataset():
         prompt = prompt.replace(config.DEFAULT_MULTI_PATCH_TOKEN, replace_token)
         replace_token = config.DEFAULT_IMAGE_PATCH_TOKEN * self.num_image_query_token
         prompt = prompt.replace(config.DEFAULT_IMAGE_PATCH_TOKEN, replace_token)
+        replace_token = config.DEFAULT_AU_PATCH_TOKEN * self.num_au_query_token
+        prompt = prompt.replace(config.DEFAULT_AU_PATCH_TOKEN, replace_token)
         return prompt
 
 
@@ -592,7 +959,8 @@ class BaseDataset():
                 if hasattr(self, '_get_audio_path'): audio_path = self._get_audio_path(sample)
                 if hasattr(self, '_get_face_path'):  face_npy   = self._get_face_path(sample)
                 # print (video_path, image_path, audio_path, face_npy)
-                sample_data = self.read_frame_face_audio_text(video_path, face_npy, audio_path, image_path)
+                sample_name = sample.get('name', None)  # 获取样本名称用于预提取特征
+                sample_data = self.read_frame_face_audio_text(video_path, face_npy, audio_path, image_path, sample_name)
 
                 # step2: read (question, answer)
                 # => 如果 sample 中缺少 qa 对应内容的信息，结果是会报错的
@@ -625,24 +993,51 @@ class BaseDataset():
             break
         else:
             raise RuntimeError(f"Failed to fetch video after {num_retries} retries.")
-        return {
-            "face": sample_data['face'],           # [c=3, frame=8, 224, 224] [这个经过了transformer变换]
-            "raw_face": sample_data['raw_face'],   # [c=3, frame=8, 224, 224]
+        # 构建返回字典，只包含有效的模态
+        result = {}
+        
+        # Face模态
+        if 'face' in sample_data:
+            result["face"] = sample_data['face']           # [c=3, frame=8, 224, 224] [这个经过了transformer变换]
+            result["raw_face"] = sample_data['raw_face']   # [c=3, frame=8, 224, 224]
 
-            "frame": sample_data['frame'],         # [c=3, frame=8, 224, 224] [这个经过了transformer变换]
-            "raw_frame": sample_data['raw_frame'], # [c=3, frame=8, 224, 224]
+        # Frame模态
+        if 'frame' in sample_data:
+            result["frame"] = sample_data['frame']         # [c=3, frame=8, 224, 224] [这个经过了transformer变换]
+            result["raw_frame"] = sample_data['raw_frame'] # [c=3, frame=8, 224, 224]
 
-            "audio": sample_data['audio'],          # [frame=8, c=1, 128, 204]
-            "raw_audio": sample_data['raw_audio'],  # [frame=8, c=1, 16000*2采样点]
+        # Audio模态
+        if 'audio' in sample_data:
+            result["audio"] = sample_data['audio']          # [frame=8, c=1, 128, 204]
+            result["raw_audio"] = sample_data['raw_audio']  # [frame=8, c=1, 16000*2采样点]
 
-            "image": sample_data['image'],
-            "raw_image": sample_data['raw_image'],
-
-            "label": label,
-            "text_input": text_input,
-            'dataset': self.dataset.lower(),
-            'face_or_frame': self.face_or_frame,
-        }
+        # Image模态
+        if 'image' in sample_data:
+            result["image"] = sample_data['image']
+            result["raw_image"] = sample_data['raw_image']
+            
+        # Multi模态
+        result["multi"] = sample_data.get('multi', None)
+        result["raw_multi"] = sample_data.get('raw_multi', None)
+        
+        # AU模态
+        result["au"] = sample_data.get('au', None)
+        result["raw_au"] = sample_data.get('raw_au', None)
+        
+        # 其他必要字段
+        result["label"] = label
+        result["text_input"] = text_input
+        result['dataset'] = self.dataset.lower()
+        result['face_or_frame'] = self.face_or_frame
+        
+        # 传递预提取标志
+        result['frame_preextracted'] = sample_data.get('frame_preextracted', False)
+        result['face_preextracted'] = sample_data.get('face_preextracted', False)
+        result['audio_preextracted'] = sample_data.get('audio_preextracted', False)
+        result['multi_preextracted'] = sample_data.get('multi_preextracted', False)
+        result['au_preextracted'] = sample_data.get('au_preextracted', False)
+        
+        return result
 
         
     ####################################################################################
@@ -693,7 +1088,7 @@ class BaseDataset():
 
         # 后面跟着的是 dataset 中所有数据类型
         # => 只有符合约束，才把这部分数据存储在 batch 里面，如果有问题，直接就不存储
-        for sample_type in ['face', 'raw_face', 'frame', 'raw_frame', 'audio', 'raw_audio', 'image', 'raw_image']:
+        for sample_type in ['face', 'raw_face', 'frame', 'raw_frame', 'audio', 'raw_audio', 'image', 'raw_image', 'multi', 'raw_multi', 'au', 'raw_au']:
             batch_type = sample_type + 's'
 
             if sample_type in instances[0]:
@@ -703,6 +1098,14 @@ class BaseDataset():
         
         batch['dataset'] = instances[0]['dataset']
         batch['face_or_frame'] = instances[0]['face_or_frame']
+        
+        # 传递预提取标志
+        batch['frame_preextracted'] = instances[0].get('frame_preextracted', False)
+        batch['face_preextracted'] = instances[0].get('face_preextracted', False)
+        batch['audio_preextracted'] = instances[0].get('audio_preextracted', False)
+        batch['multi_preextracted'] = instances[0].get('multi_preextracted', False)
+        batch['au_preextracted'] = instances[0].get('au_preextracted', False)  # 添加AU预提取标志
+        
         return batch
     
 

@@ -127,6 +127,7 @@ class Chat:
         self.num_audio_query_token = model_cfg.num_audio_query_token
         self.num_multi_query_token = model_cfg.num_multi_query_token
         self.num_image_query_token = model_cfg.num_image_query_token
+        self.num_au_query_token = getattr(model_cfg, 'num_au_query_token', 8)  # AU query token数量
 
 
     def to_token_ids(self, text, max_length):
@@ -149,10 +150,12 @@ class Chat:
         prompt = prompt.replace(config.DEFAULT_MULTI_PATCH_TOKEN, replace_token)
         replace_token = config.DEFAULT_IMAGE_PATCH_TOKEN * self.num_image_query_token
         prompt = prompt.replace(config.DEFAULT_IMAGE_PATCH_TOKEN, replace_token)
+        replace_token = config.DEFAULT_AU_PATCH_TOKEN * self.num_au_query_token
+        prompt = prompt.replace(config.DEFAULT_AU_PATCH_TOKEN, replace_token)
         return prompt
    
     def postprocess_audio(self, sample_data):
-        if sample_data['audio'] is None:
+        if 'audio' not in sample_data or sample_data['audio'] is None:
             return None, None
         
         audio = sample_data['audio'].unsqueeze(0).to(self.device)
@@ -161,7 +164,7 @@ class Chat:
         return audio_hiddens, audio_llms
 
     def postprocess_face(self, sample_data):
-        if sample_data['face'] is None:
+        if 'face' not in sample_data or sample_data['face'] is None:
             return None, None
         
         face = sample_data['face'].unsqueeze(0).to(self.device) # [1, 3, 8, 224, 224]
@@ -170,7 +173,7 @@ class Chat:
         return face_hiddens, face_llms
     
     def postprocess_frame(self, sample_data):
-        if sample_data['frame'] is None:
+        if 'frame' not in sample_data or sample_data['frame'] is None:
             return None, None
         
         video = sample_data['frame'].unsqueeze(0).to(self.device) # [1, 3, 8, 224, 224]
@@ -179,7 +182,7 @@ class Chat:
         return frame_hiddens, frame_llms
 
     def postprocess_image(self, sample_data):
-        if sample_data['image'] is None:
+        if 'image' not in sample_data or sample_data['image'] is None:
             return None, None
         
         image = sample_data['image'].unsqueeze(0).to(self.device) # [1, 3, 8, 224, 224]
@@ -195,6 +198,15 @@ class Chat:
         multi_hiddens, multi_llms = self.model.encode_multi_merge(video_hiddens, audio_hiddens)
         return multi_hiddens, multi_llms
 
+    def postprocess_au(self, sample_data):
+        """AU模态处理"""
+        if 'au' not in sample_data or sample_data['au'] is None:
+            return None, None
+        
+        au = sample_data['au'].unsqueeze(0).to(self.device)  # [1, T, 512]
+        au_hiddens, au_llms = self.model.encode_au_merge(au, is_preextracted=True)
+        return au_hiddens, au_llms
+
     
     # 整体过程就是在模拟inference过程 => 尝试完全按照 training 的方式进行读写
     def answer_sample(self, prompt, img_list, num_beams=1, temperature=1.0, do_sample=True,  top_p=0.9,
@@ -206,6 +218,7 @@ class Chat:
         FRAME_PATCH_TOKEN_ID = self.tokenizer.get_vocab()[config.DEFAULT_FRAME_PATCH_TOKEN]
         FACE_PATCH_TOKEN_ID  = self.tokenizer.get_vocab()[config.DEFAULT_FACE_PATCH_TOKEN]
         MULTI_PATCH_TOKEN_ID = self.tokenizer.get_vocab()[config.DEFAULT_MULTI_PATCH_TOKEN]
+        AU_PATCH_TOKEN_ID    = self.tokenizer.get_vocab()[config.DEFAULT_AU_PATCH_TOKEN]
 
         ###### step1: => (input_id, attention_mask) 
         ## replace and add
@@ -229,6 +242,7 @@ class Chat:
         temp_input_id[temp_input_id == AUDIO_PATCH_TOKEN_ID] = 0
         temp_input_id[temp_input_id == MULTI_PATCH_TOKEN_ID] = 0
         temp_input_id[temp_input_id == IMAGE_PATCH_TOKEN_ID] = 0
+        temp_input_id[temp_input_id == AU_PATCH_TOKEN_ID]    = 0
         cur_input_embeds = self.model.llama_model.model.model.embed_tokens(temp_input_id)
         cur_input_ids = input_id
         
@@ -239,6 +253,7 @@ class Chat:
                                                             (AUDIO_PATCH_TOKEN_ID, self.num_audio_query_token, img_list['audio']),
                                                             (MULTI_PATCH_TOKEN_ID, self.num_multi_query_token, img_list['multi']),
                                                             (IMAGE_PATCH_TOKEN_ID, self.num_image_query_token, img_list['image']),
+                                                            (AU_PATCH_TOKEN_ID,    self.num_au_query_token,    img_list['au']),
                                                             ]:
             if (cur_input_ids == patch_token_id).sum() != 0:
                 assert embeds is not None, f'Some input info is missing.'
