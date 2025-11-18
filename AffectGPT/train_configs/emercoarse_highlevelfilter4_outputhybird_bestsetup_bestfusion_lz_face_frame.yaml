@@ -38,6 +38,12 @@ model:
   num_video_query_token: 1
   num_multi_query_token: 1
   num_image_query_token: 1
+  num_au_query_token: 1  # AU query token数量
+  
+  # AU Agent配置（训练和推理都使用）
+  use_au_agent: True  # 训练和推理都启用AU Agent
+  au_agent_base_model: "/home/project/Dataset/Emotion/tools/transformer/LLM/Qwen2.5-7B-Instruct"
+  au_agent_lora_weights: "/home/project/AffectGPT/AffectGPT/output/au_agent_qwen2.5_7b_lora"
 
   max_length: 1024
 
@@ -65,6 +71,9 @@ datasets:
     # Frame采样配置 - 可选择均匀采样或峰值帧采样
     frame_n_frms: 8        # Frame帧数: 8(均匀采样) 或 1(峰值帧)
     frame_sampling: 'uniform'  # Frame采样策略: 'uniform'(均匀采样) 或 'emotion_peak'(峰值帧)
+    
+    # MER-Factory输出路径 - 用于加载AU result
+    mer_factory_output: '/home/project/MER-Factory/output'  # MER-Factory AU分析结果目录
     
     # 预提取特征配置 - 减少显存消耗
     use_preextracted_features: False   # 🎯 启用预提取特征模式

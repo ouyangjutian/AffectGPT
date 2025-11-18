@@ -4,6 +4,7 @@ import copy
 import random
 import pandas as pd
 from typing import Dict, Optional, Sequence, Iterable
+import json
 
 import torch
 from torch.utils.data import Dataset, ConcatDataset
@@ -172,6 +173,67 @@ class BaseDataset():
         input_ids = self.tokenizer(text, return_tensors="pt", padding="longest", max_length=max_length, 
                                 truncation=True, add_special_tokens=False).input_ids[0]
         return input_ids
+    
+    def _load_au_result_from_mer_factory(self, video_name: str) -> Optional[Dict]:
+        """
+        从MER-Factory输出的JSON文件加载AU result
+        
+        Args:
+            video_name: 视频名称（不含扩展名）
+        
+        Returns:
+            AU result字典: {'active_aus': {...}, 'au_description': "..."}
+            如果加载失败返回None
+        """
+        if not self.mer_factory_output:
+            return None
+        
+        # MER-Factory JSON路径
+        au_json_path = os.path.join(self.mer_factory_output, video_name, f'{video_name}_au_analysis.json')
+        
+        if not os.path.exists(au_json_path):
+            return None
+        
+        try:
+            with open(au_json_path, 'r', encoding='utf-8') as f:
+                au_data = json.load(f)
+            
+            # 获取per_frame_au_descriptions
+            per_frame_data = au_data.get('per_frame_au_descriptions', [])
+            if not per_frame_data:
+                return None
+            
+            # 选择帧策略
+            frame_sampling = getattr(self, 'frame_sampling', 'uniform')
+            
+            if frame_sampling == 'emotion_peak':
+                # 使用峰值帧（如果有）
+                au_info = au_data.get('au_info', {})
+                peak_frames = au_info.get('peak_frames', [])
+                
+                if peak_frames and len(peak_frames) > 0:
+                    # 使用第一个峰值帧
+                    peak_index = peak_frames[0]['peak_index']
+                    if peak_index < len(per_frame_data):
+                        frame_data = per_frame_data[peak_index]
+                    else:
+                        frame_data = per_frame_data[0]
+                else:
+                    # 没有峰值帧，使用第一帧
+                    frame_data = per_frame_data[0]
+            else:
+                # 默认使用第一帧
+                frame_data = per_frame_data[0]
+            
+            # 返回AU result
+            return {
+                'active_aus': frame_data.get('active_aus', {}),
+                'au_description': frame_data.get('au_description', '')
+            }
+            
+        except Exception as e:
+            print(f"⚠️ 加载AU result失败 {au_json_path}: {e}")
+            return None
 
 
     def func_map_valence_to_emotion(self, valence):
@@ -471,10 +533,10 @@ class BaseDataset():
         sample_data['multi'] = multi
         sample_data['raw_multi'] = raw_multi
         
-        # step5: read AU features
-        au, raw_au = None, None
+        # step5: read AU result (从MER-Factory JSON加载)
+        au = None
         if 'au' in self.needed_data:
-            # 模式1: 预提取特征模式（训练常用）
+            # 模式1: 预提取CLIP特征模式（旧方式，兼容性保留）
             if use_preextracted and preextracted_root and sample_name:
                 au_feat_dir = 'au_CLIP_VITB32_8frms'  # AU特征目录
                 au_feat_path = os.path.join(preextracted_root, au_feat_dir, f'{sample_name}.npy')
@@ -482,11 +544,10 @@ class BaseDataset():
                 if os.path.exists(au_feat_path):
                     au_features = np.load(au_feat_path)  # [T, 512] CLIP text encoder输出
                     au = torch.from_numpy(au_features).float()  # 转换为tensor
-                    raw_au = au  # 预提取模式下raw_au与au相同
                 else:
                     print(f"⚠️ AU特征文件不存在: {au_feat_path}")
             
-            # 模式2: 实时处理模式（推理常用）
+            # 模式2: AU Agent模式（新方式，从MER-Factory JSON加载AU result）
             else:
                 # 从video_path或sample_name提取video_name
                 video_name = None
@@ -496,17 +557,15 @@ class BaseDataset():
                     video_name = os.path.splitext(os.path.basename(video_path))[0]
                 
                 if video_name and self.mer_factory_output:
-                    # 实时从MER-Factory输出提取并编码AU特征
-                    au = self._extract_au_features_realtime(video_name)
-                    raw_au = au  # 实时模式下raw_au与au相同
+                    # 从MER-Factory JSON加载AU result
+                    au = self._load_au_result_from_mer_factory(video_name)
                     if au is None:
-                        print(f"⚠️ AU实时处理失败，需要MER-Factory输出: {video_name}")
+                        print(f"⚠️ AU result加载失败: {video_name}")
                 else:
                     if 'au' in self.needed_data:
-                        print(f"⚠️ AU实时处理需要video_name和mer_factory_output配置")
+                        print(f"⚠️ AU加载需要video_name和mer_factory_output配置")
         
         sample_data['au'] = au
-        sample_data['raw_au'] = raw_au
         
         # 设置预提取标志
         # 在分布式实时提取模式下，特征来自服务端，也算作"预提取"
