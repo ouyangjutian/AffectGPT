@@ -266,7 +266,25 @@ class Chat:
                 else:
                     return None, None
         else:
-            # 原有的预提取特征模式
+            # 预提取特征模式或CLIP实时编码模式
+            # 检查AU数据类型
+            if sample_data['au'] is None:
+                print(f"⚠️ AU数据为None，跳过AU处理")
+                return None, None
+            
+            if isinstance(sample_data['au'], dict):
+                print(f"⚠️ AU数据是字典格式，但未启用AU Agent。请检查配置：")
+                print(f"   1. 训练配置文件中是否正确设置了AU模式")
+                print(f"   2. 推理时是否设置了use_au_clip_realtime=True")
+                print(f"   跳过AU处理")
+                return None, None
+            
+            if not torch.is_tensor(sample_data['au']):
+                print(f"⚠️ AU数据类型错误: {type(sample_data['au'])}，应该是torch.Tensor")
+                print(f"   跳过AU处理")
+                return None, None
+            
+            # 正常处理张量AU特征
             au = sample_data['au'].unsqueeze(0).to(self.device)  # [1, T, 512]
             au_hiddens, au_llms = self.model.encode_au_merge(au, is_preextracted=True)
             return au_hiddens, au_llms

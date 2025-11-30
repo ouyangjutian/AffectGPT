@@ -164,6 +164,32 @@ def _calculate_smart_frame_indices(au_info, total_video_frames):
     return result_indices[:8]
 
 
+def load_video_with_indices(video_path, frame_indices, height=-1, width=-1):
+    """加载视频的指定帧
+    
+    Args:
+        video_path: 视频文件路径
+        frame_indices: 要加载的帧索引列表 (0-indexed)
+        height, width: 目标尺寸
+    
+    Returns:
+        torch.Tensor: [C, T, H, W] 格式的视频帧
+    """
+    decord.bridge.set_bridge("torch")
+    vr = VideoReader(uri=video_path, height=height, width=width)
+    
+    # 确保索引在有效范围内
+    vlen = len(vr)
+    valid_indices = [min(max(0, idx), vlen - 1) for idx in frame_indices]
+    
+    # 加载指定帧
+    temp_frms = vr.get_batch(valid_indices)
+    tensor_frms = torch.from_numpy(temp_frms) if type(temp_frms) is not torch.Tensor else temp_frms
+    frms = tensor_frms.permute(3, 0, 1, 2).float()  # (C, T, H, W)
+    
+    return frms
+
+
 ## video -> sampled frames
 def load_video(video_path, n_frms=MAX_INT, height=-1, width=-1, sampling="uniform", return_msg=False, 
                video_name=None, mer_factory_output=None):

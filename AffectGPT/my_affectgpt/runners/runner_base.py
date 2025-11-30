@@ -24,6 +24,7 @@ from my_affectgpt.common.dist_utils import (
 )
 from my_affectgpt.common.registry import registry
 from my_affectgpt.common.utils import is_url
+from my_affectgpt.common.training_visualizer import TrainingVisualizer
 from my_affectgpt.datasets.data_utils import concat_datasets, reorg_datasets_by_split, ChainDataset
 from my_affectgpt.datasets.datasets.dataloader_utils import (
     IterLoader,
@@ -66,6 +67,11 @@ class RunnerBase:
         self.start_epoch = 0
 
         self.setup_output_dir()
+        
+        # Initialize training visualizer
+        visualizer_enabled = self.config.run_cfg.get("visualize_training", True)
+        vis_dir = self.output_dir / "training_curves"
+        self.visualizer = TrainingVisualizer(vis_dir, enabled=visualizer_enabled and is_main_process())
 
     @property
     def device(self):
@@ -464,6 +470,7 @@ class RunnerBase:
             cuda_enabled=self.cuda_enabled,
             log_freq=self.log_freq, # print log for 50 iters
             accum_grad_iters=self.accum_grad_iters,
+            visualizer=self.visualizer,  # for training visualization
         )
 
     @torch.no_grad()

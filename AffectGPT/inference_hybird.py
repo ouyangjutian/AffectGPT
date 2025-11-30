@@ -113,12 +113,19 @@ def get_name2cls(dataset):
     return None
 
 
-# 优先级：zeroshot > dataset specific
-def get_user_message(dataset_cls, zeroshot, outside_user_message):
+# 优先级：outside_user_message > zeroshot > dataset specific
+def get_user_message(dataset_cls, zeroshot, outside_user_message, use_reasoning=True):
     if outside_user_message is not None:
         user_message = outside_user_message
-    elif zeroshot: # predict ov labels
+    elif use_reasoning:
+        # 使用reasoning模式：要求模型给出推理过程
+        user_message = dataset_cls.func_get_qa_description(sample=None, question_only=True)
+    elif zeroshot:
+        # 只要求分类，不要求reasoning
         user_message = dataset_cls.func_get_qa_ovlabel(sample=None, question_only=True)
+    else:
+        # 默认使用reasoning
+        user_message = dataset_cls.func_get_qa_description(sample=None, question_only=True)
     return user_message
 
 
@@ -128,6 +135,7 @@ if __name__ == "__main__":
     parser.add_argument("--options",  nargs="+", help="override some settings in the used config, format: --option xx=xx yy=yy zz=zz")
     parser.add_argument("--dataset", default='merbench', help="evaluate dataset")
     parser.add_argument('--zeroshot', action='store_true', default=False, help='whether testing on zeroshot performance?')
+    parser.add_argument('--no_reasoning', action='store_true', default=False, help='disable reasoning output, only classification')
     parser.add_argument('--outside_user_message',  default=None, help="we use the outside user message, rather than dataset dependent.")
     parser.add_argument('--outside_face_or_frame', default=None, help="we use the outside face_or_frame, rather than dataset dependent.")
     args = parser.parse_args()
@@ -226,15 +234,22 @@ if __name__ == "__main__":
                 # 初始化CLIP模型属性（推理时使用类级别属性，需要手动初始化）
                 dataset_cls._clip_model = None
                 dataset_cls._clip_preprocess = None
+                
+                # 设置AU处理模式：使用CLIP实时编码模式（推理推荐）
+                dataset_cls.use_au_clip_realtime = True
+                
                 if not dataset_cls.mer_factory_output:
                     print(f'⚠️ [INFERENCE] AU模态需要mer_factory_output配置，将回退到预提取模式')
                     # 回退到预提取模式
                     dataset_cls.use_preextracted_features = True
+                    dataset_cls.use_au_clip_realtime = False
                     dataset_cls.preextracted_root = './preextracted_features/' + dataset.lower()
                     dataset_cls.visual_encoder = 'CLIP_VIT_LARGE'
                     dataset_cls.acoustic_encoder = 'HUBERT_LARGE'
                     dataset_cls.clips_per_video = 8
                     print(f'[INFERENCE] 回退到预提取模式: {dataset_cls.preextracted_root}')
+                else:
+                    print(f'[INFERENCE] AU模式: CLIP实时编码模式（从MER-Factory JSON加载summary_description）')
             
             print(f'====== Inference Frame Sampling Config ======')
             print(f'Frame frames: {dataset_cls.frame_n_frms}, Frame sampling: {dataset_cls.frame_sampling}')
@@ -294,8 +309,9 @@ if __name__ == "__main__":
                 img_list['multi'] = multi_llms
                 img_list['au']    = au_llms    # 添加AU到img_list
 
-                # get prompt (if use zeroshot => ov labels; else => dataset specific question)
-                user_message = get_user_message(dataset_cls, args.zeroshot, args.outside_user_message)
+                # get prompt (use_reasoning=True => reasoning; zeroshot => ov labels; else => dataset specific)
+                use_reasoning = not args.no_reasoning  # 默认启用reasoning
+                user_message = get_user_message(dataset_cls, args.zeroshot, args.outside_user_message, use_reasoning)
                 prompt = dataset_cls.get_prompt_for_multimodal(face_or_frame, subtitle, user_message)
                 
                 # => call function

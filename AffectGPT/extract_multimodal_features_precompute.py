@@ -722,7 +722,7 @@ class FeatureExtractor:
             return False
     
     def extract_au_features(self, video_id):
-        """从MER-Factory输出提取fine_grained_descriptions并用CLIP编码
+        """从MER-Factory输出提取summary_description并用CLIP编码
         
         Args:
             video_id: 视频ID（不含扩展名）
@@ -747,14 +747,19 @@ class FeatureExtractor:
             with open(json_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
-            fine_grained_descriptions = data.get('fine_grained_descriptions', {})
+            # 优先使用summary_description（纯净的assistant描述）
+            summary_description = data.get('summary_description', {})
             
-            if not fine_grained_descriptions:
-                return None
+            # 向后兼容：如果没有summary_description，尝试fine_grained_descriptions
+            if not summary_description:
+                fine_grained_descriptions = data.get('fine_grained_descriptions', {})
+                if not fine_grained_descriptions:
+                    return None
+                summary_description = fine_grained_descriptions
             
-            # 准备文本列表
-            frame_indices = sorted(fine_grained_descriptions.keys(), key=int)
-            texts = [fine_grained_descriptions[idx] for idx in frame_indices]
+            # 准备文本列表（按帧号排序）
+            frame_indices = sorted(summary_description.keys(), key=int)
+            texts = [summary_description[idx] for idx in frame_indices]
             
             # 使用CLIP编码
             text_tokens = clip.tokenize(texts, truncate=True).to(self.device)
@@ -1127,7 +1132,9 @@ def main():
     print(f"😊 Face配置: uniform 采样, 8 帧 (固定)")
     print(f"🔊 Audio配置: {args.clips_per_video} 片段")
     if args.modality in ['au', 'all']:
-        print(f"📝 AU配置: CLIP ViT-B/32 (512维) 编码 fine_grained_descriptions")
+        print(f"📝 AU配置: CLIP ViT-B/32 (512维) 编码 summary_description")
+        if args.mer_factory_output:
+            print(f"   MER-Factory输出: {args.mer_factory_output}")
     print("=" * 60)
     
     # 开始提取

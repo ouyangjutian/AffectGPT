@@ -780,61 +780,63 @@ class AffectGPT(Blip2Base):
         """处理AU特征 - 仅支持预提取模式，因为AU特征来自MER-Factory输出"""
         if is_preextracted:
             device = au_features.device
-            batch_size, time_length, hidden_dim = au_features.size()  # [b, t, 512]
             
-            # AU特征保持CLIP ViT-B/32原始512维特征
-            store_hidden_state = au_features  # [b, t, 512]
+            with self.maybe_autocast():
+                batch_size, time_length, hidden_dim = au_features.size()  # [b, t, 512]
+                
+                # AU特征保持CLIP ViT-B/32原始512维特征
+                store_hidden_state = au_features  # [b, t, 512]
+                
+                # 根据融合类型处理
+                if self.au_fusion_type == 'qformer':
+                    # Q-Former处理
+                    position_ids = torch.arange(time_length, dtype=torch.long, device=device)
+                    position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
+                    au_position_embeddings = self.au_position_embedding(position_ids)
+                    au_hidden_state = store_hidden_state + au_position_embeddings
+                    
+                    query_tokens = self.au_query_tokens.expand(batch_size, -1, -1)
+                    query_atts = torch.ones(query_tokens.size()[:-1], dtype=torch.long, device=device)
+                    attention_mask = torch.ones(au_hidden_state.size()[:-1], dtype=torch.long, device=device)
+                    
+                    query_output = self.au_Qformer.bert(
+                        query_embeds=query_tokens,
+                        encoder_hidden_states=au_hidden_state,
+                        encoder_attention_mask=attention_mask,
+                        return_dict=True,
+                    )
+                    
+                    # 投影到LLM空间
+                    inputs_llama = self.au_llama_proj(query_output.last_hidden_state)
+                    au_hiddens, au_llms = store_hidden_state, inputs_llama
+                    
+                elif self.au_fusion_type == 'attention':
+                    # 注意力融合
+                    batch_size, time_length = store_hidden_state.shape[0], store_hidden_state.shape[1]
+                    
+                    attention = self.au_attention_mlp(store_hidden_state)  # [b, t, h] -> [b, t, 1]
+                    au_rearranged = einops.rearrange(store_hidden_state, 'b t h -> b h t', b=batch_size, t=time_length)  # [b, h, t]
+                    fused_feat = torch.matmul(au_rearranged, attention)  # [b, h, 1]
+                    fused_feat = fused_feat.squeeze(axis=2)  # [b, h]
+                    
+                    # 投影到LLM空间
+                    inputs_llama = self.au_llama_proj(fused_feat)  # [b, llmdim]
+                    inputs_llama = torch.unsqueeze(inputs_llama, 1).expand(-1, self.num_au_query_token, -1)  # [b, num_au_query_token, llmdim]
+                    au_hiddens, au_llms = store_hidden_state, inputs_llama
+                    
+                elif self.au_fusion_type == 'mean':
+                    # 均值融合 - 默认方式
+                    mean_features = torch.mean(store_hidden_state, dim=1)  # [batch, hidden_dim]
+                    
+                    # 投影到LLM空间
+                    inputs_llama = self.au_llama_proj(mean_features)  # [b, llmdim]
+                    inputs_llama = torch.unsqueeze(inputs_llama, 1).expand(-1, self.num_au_query_token, -1)  # [b, num_au_query_token, llmdim]
+                    au_hiddens, au_llms = store_hidden_state, inputs_llama
             
-            # 根据融合类型处理
-            if self.au_fusion_type == 'qformer':
-                # Q-Former处理
-                position_ids = torch.arange(time_length, dtype=torch.long, device=device)
-                position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
-                au_position_embeddings = self.au_position_embedding(position_ids)
-                au_hidden_state = store_hidden_state + au_position_embeddings
-                
-                query_tokens = self.au_query_tokens.expand(batch_size, -1, -1)
-                query_atts = torch.ones(query_tokens.size()[:-1], dtype=torch.long, device=device)
-                attention_mask = torch.ones(au_hidden_state.size()[:-1], dtype=torch.long, device=device)
-                
-                query_output = self.au_Qformer.bert(
-                    query_embeds=query_tokens,
-                    encoder_hidden_states=au_hidden_state,
-                    encoder_attention_mask=attention_mask,
-                    return_dict=True,
-                )
-                
-                # 投影到LLM空间
-                inputs_llama = self.au_llama_proj(query_output.last_hidden_state)
-                au_hiddens, au_llms = store_hidden_state, inputs_llama
-                
-            elif self.au_fusion_type == 'attention':
-                # 注意力融合
-                batch_size, time_length = store_hidden_state.shape[0], store_hidden_state.shape[1]
-                
-                attention = self.au_attention_mlp(store_hidden_state)  # [b, t, h] -> [b, t, 1]
-                au_rearranged = einops.rearrange(store_hidden_state, 'b t h -> b h t', b=batch_size, t=time_length)  # [b, h, t]
-                fused_feat = torch.matmul(au_rearranged, attention)  # [b, h, 1]
-                fused_feat = fused_feat.squeeze(axis=2)  # [b, h]
-                
-                # 投影到LLM空间
-                inputs_llama = self.au_llama_proj(fused_feat)  # [b, llmdim]
-                inputs_llama = torch.unsqueeze(inputs_llama, 1).expand(-1, self.num_au_query_token, -1)  # [b, num_au_query_token, llmdim]
-                au_hiddens, au_llms = store_hidden_state, inputs_llama
-                
-            elif self.au_fusion_type == 'mean':
-                # 均值融合 - 默认方式
-                mean_features = torch.mean(store_hidden_state, dim=1)  # [batch, hidden_dim]
-                
-                # 投影到LLM空间
-                inputs_llama = self.au_llama_proj(mean_features)  # [b, llmdim]
-                inputs_llama = torch.unsqueeze(inputs_llama, 1).expand(-1, self.num_au_query_token, -1)  # [b, num_au_query_token, llmdim]
-                au_hiddens, au_llms = store_hidden_state, inputs_llama
+            return au_hiddens, au_llms
         else:
             # AU特征只支持预提取模式
             raise RuntimeError("AU features only support preextracted mode")
-            
-        return au_hiddens, au_llms
 
     # ===================================================== #
     # ===================================================== #

@@ -1,18 +1,23 @@
-## w Pre-fusion + Attention
+## 推荐训练配置 - 使用预提取AU特征（不使用AU Agent）
+## 优点：训练快3-5倍，显存占用小（15GB vs 30GB）
 
 model:
   arch: affectgpt
   model_type: pretrain_vicuna
   
-  # 预提取模式优化 - 完全移除编码器依赖节省2.3GB显存
-  skip_encoders: False  # 🎯 启用时完全跳过CLIP_VIT_LARGE和HUBERT_LARGE加载
-  # skip_encoders: True # 🎯 启用时完全跳过CLIP_VIT_LARGE和HUBERT_LARGE、CLIP加载
-  # 预提取模式下的编码器配置（仅用于维度计算，不实际加载）
+  # ======================== 编码器配置 ========================
+  # 🎯 关键配置：不使用AU Agent
+  use_au_agent: False  # ❌ 训练时不加载AU Agent
+  
+  # 预提取模式优化 - 节省显存
+  skip_encoders: True  # ✅ 跳过CLIP和HuBERT加载（进一步节省2-3GB）训练
+  # skip_encoders: False # ❌ 推理
   preextracted_visual_dim: 768   # CLIP_VIT_LARGE输出维度
   preextracted_acoustic_dim: 1024  # HUBERT_LARGE输出维度
   preextracted_au_dim: 512       # CLIP text encoder AU特征维度
 
-  # Audio Q-Former and Video Q-Former
+  # ======================== 冻结策略 ========================
+  # Fusion配置
   frozen_video_proj: False
   frozen_video_Qformer: False
   frozen_audio_Qformer: False
@@ -23,21 +28,24 @@ model:
   frozen_multi_llama_proj: False
   frozen_llm: False
 
+  # ======================== 融合策略 ============================
   multi_fusion_type: attention # attention/qformer
   video_fusion_type: attention # qformer(default)/mean/attention
   audio_fusion_type: attention # qformer(default)/mean/attention
   image_fusion_type: mean       # token(default)/mean
   au_fusion_type: attention     # qformer/mean/attention
 
-  # AffectGPT
-  ckpt:   ""
+  # ============================= Checkpoint ============================
+  # AffectGPT checkpoint
+  ckpt: ""
   ckpt_2: ""
 
-  # Other pre-trained models
-  llama_model: "Qwen25"            # Vicuna
-  acoustic_encoder: "HUBERT_LARGE" # IMAGEBIND
-  visual_encoder: "CLIP_VIT_LARGE" # EVA_CLIP_G
+  # ========================   LLM配置与编码器配置（仅用于路径构建）========================
+  llama_model: "Qwen25"
+  acoustic_encoder: "HUBERT_LARGE"
+  visual_encoder: "CLIP_VIT_LARGE"
 
+  # Query token配置
   num_audio_query_token: 1
   num_video_query_token: 1
   num_multi_query_token: 1
@@ -45,7 +53,7 @@ model:
   num_au_query_token: 1
 
   max_length: 1024
-
+  # ======================== Processor配置 ========================
   vis_processor:
     train:
       name: "alpro_video_train"
@@ -58,87 +66,77 @@ model:
     train:
       name: "blip2_image_train"
       image_size: 224
-  
 
+  # ======================== 数据集配置 ========================
 datasets:
-
   mercaptionplus:
     data_type: video
-    face_or_frame: 'multiface_audio_face_frame_au_text' # 默认是读取 frame or face  multi, face, audio, au, text
-    label_type: 'hybird' # 模型是预测 description 还是 label 呢？
+    face_or_frame: 'multiface_audio_face_frame_au_text'  # multi, face, audio, frame, au, text
+    label_type: 'hybird'
     
-    # Frame采样配置 - 可选择均匀采样或峰值帧采样
-    frame_n_frms: 8        # Frame帧数: 8(均匀采样) 或 8(智能采样)
-    frame_sampling: 'uniform'  # Frame采样策略: 'uniform'(均匀采样) 或 'emotion_peak'(AU智能采样)
-    mer_factory_output: '/home/project/MER-Factory/output'  # MER-Factory输出目录 - 用于Frame模态的emotion_peak模式
+    # Frame采样配置
+    frame_n_frms: 8
+    frame_sampling: 'emotion_peak'  # 或 'emotion_peak'（AU智能采样）
     
-    # 预提取特征配置 - 减少显存消耗
-    use_preextracted_features: False   # 🎯 不启用预提取特征模式
-    # use_preextracted_features: True   # 🎯 启用预提取特征模式
-    preextracted_root: './preextracted_features/mercaptionplus'  # 预提取特征根目录
-    visual_encoder: 'CLIP_VIT_LARGE'    # 视觉编码器名称(用于构建特征路径)
-    acoustic_encoder: 'HUBERT_LARGE'    # 声学编码器名称(用于构建特征路径)
-    clips_per_video: 8                  # 音频片段数(用于构建特征路径)
+    # MER-Factory输出路径 - 用于AU模态和emotion_peak采样
+    mer_factory_output: '/home/project/MER-Factory/output'
     
-    # 预提取特征使用说明:
-    # 1. 实时处理模式(默认): use_preextracted_features: False
-    #    - 优点: 灵活性高，支持数据增强
-    #    - 缺点: 显存消耗大(~3GB)，训练慢
-    # 2. 预提取特征模式: use_preextracted_features: True
-    #    - 优点: 显存消耗小(~500MB)，训练快3-5倍
-    #    - 缺点: 需要预先提取特征，灵活性较低
+    # 🎯 关键配置：使用预提取特征
+    use_preextracted_features: True  # ✅ 启用预提取特征（Frame/Face/Audio/AU）
+    # use_preextracted_features: False # ❌ 推理时不使用预提取特征（仅AU特征）
+    preextracted_root: './preextracted_features/mercaptionplus'
     
-    # Frame采样策略使用说明:
-    # 1. 均匀采样(默认): frame_sampling: 'uniform', frame_n_frms: 8
-    #    - 从视频中均匀采样8帧
-    # 2. AU智能采样:    frame_sampling: 'emotion_peak', frame_n_frms: 8
-    #    - 根据AU峰值信息智能选择8帧(需要mer_factory_output)
-    #    - 会自动读取 mer_factory_output/{video_name}/{video_name}_au_analysis.json
-    #    - 如果没有au_info文件，会回退到均匀采样
-    # 注意: Face始终保持8帧uniform采样不变
+    # 编码器配置（用于构建特征路径）
+    visual_encoder: 'CLIP_VIT_LARGE'
+    acoustic_encoder: 'HUBERT_LARGE'
+    clips_per_video: 8
+    
+    # 使用说明:
+    # 1. 预先运行 extract_mercaptionplus_features.sh 提取AU特征
+    # 2. 确保 preextracted_features/mercaptionplus/au_CLIP_VITB32_8frms/ 存在
+    # 3. Frame/Face/Audio也建议预提取以获得最佳性能
 
 
-# 1. 采用大batch + 三个 80g gpu
 run:
-
   task: video_text_pretrain
 
+  # ======================== 学习率配置（关键！）========================
   # optimizer
+  # optimizer: adamw    # AdamW优化器
   lr_sched: "linear_warmup_cosine_lr"
-  init_lr: 1e-5 # 3e-5 loss: nan -> 降低 loss 到 2e-5 nan -> 降低 loss 到 1e-5
-  min_lr: 1e-5
-  warmup_lr: 1e-6
-  weight_decay: 0.05
+  init_lr: 1e-5       # 初始学习率（峰值） 推荐：1e-4
+  min_lr: 1e-5        # 最小学习率（允许衰减100倍）1e-6
+  warmup_lr: 1e-6     # Warmup起始学习率
+  weight_decay: 0.05  # 权重衰减（正则化）
 
-  # max_epoch: 60 # 20 -> 100 大概可以让每个样本跑2-3次的样子，因为 EMER-Coarse 大约有 11.5k samples => 大约 26h 就可以跑完，速度还ok的
-  # iters_per_epoch: 5000 # 1000
-  # warmup_steps: 5000    # 1000
-# 测试AU
-  max_epoch: 30 # 20 -> 100 大概可以让每个样本跑2-3次的样子，因为 EMER-Coarse 大约有 11.5k samples => 大约 26h 就可以跑完，速度还ok的
-  iters_per_epoch: 1000 # 1000
-  warmup_steps: 1000    # 1000
+  max_epoch: 60  # 60           # 15  # 总epoch数
+  iters_per_epoch: 5000 # 5000  # 31327                 # 每个epoch完整遍历数据集
+  warmup_steps: 5000 # 5000     # 6265                     # Warmup步数（2%的总步数）
 
-  batch_size_train: 1 # 3 # 这是单一gpu的batch_size；实际batch_size = gpu_num * batch_size_train
-  batch_size_eval:  1 # 3 # 这是单一gpu的batch_size；实际batch_size = gpu_num * batch_size_train
+  batch_size_train: 1
+  batch_size_eval: 1
+  # 测试梯度累积
+  # accum_grad_iters: 8                    # 梯度累积步数（模拟batch_size=8）
 
   seed: 42
   num_workers: 4
 
-  amp: True # auto mixed precision, multiplication (fp16), addition (fp32)
-  resume_ckpt_path: null # continue training from resume_ckpt_path
+  amp: True
+  resume_ckpt_path: null
 
-  evaluate: False 
+  evaluate: False
   train_splits: ["train"]
 
-  device: "cuda" 
+  device: "cuda"
   world_size: 1
   dist_url: "env://"
   distributed: True
+    # ===== 日志和保存 =====
+  # log_freq: 50                          # 日志打印频率（每100步）
+  # visualize_training: False    # 启用（默认）
 
 
-# 这部分放的是 inference 相关的
 inference:
-
   task: video_text_pretrain
 
   vis_processor:
@@ -154,37 +152,21 @@ inference:
       name: "blip2_image_eval"
       image_size: 224
 
-  ######################################################
-  # NOTE: 为了避免出错，设置为与 emercoarse 或者 mer2023 一致就可以
   face_or_frame: 'xxx'
-  ######################################################
   
-  # Frame采样配置 - 推理时的Frame采样策略
-  frame_n_frms: 8        # Frame帧数: 8(均匀采样) 或 1(峰值帧)
-  frame_sampling: 'uniform'  # Frame采样策略: 'uniform'(均匀采样) 或 'emotion_peak'(峰值帧)
+  # 推理配置
+  frame_n_frms: 8
+  frame_sampling: 'emotion_peak'
   
-  # 预提取特征配置 - 推理时减少显存消耗
-  use_preextracted_features: False   # 🎯 不启用预提取特征模式
-  # use_preextracted_features: True   # 🎯 启用预提取特征模式
-  preextracted_root: './preextracted_features/mercaptionplus'  # 预提取特征根目录
-  mer_factory_output: '/home/project/MER-Factory/output'  # MER-Factory输出目录
-
-  visual_encoder: 'CLIP_VIT_LARGE'    # 视觉编码器名称(用于构建特征路径)
-  acoustic_encoder: 'HUBERT_LARGE'    # 声学编码器名称(用于构建特征路径)
-  clips_per_video: 8                  # 音频片段数(用于构建特征路径)
-  
-  # 推理时Frame采样配置说明:
-  # 1. 均匀采样8帧: frame_n_frms: 8, frame_sampling: 'uniform'
-  # 2. 峰值帧1帧:   frame_n_frms: 1, frame_sampling: 'emotion_peak'
-  # 注意: Face始终保持8帧uniform采样不变
-
-  base_root: 'output/log_information/emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz_face_frame_au/test/inference_result/results'
-
-  # inference ckpt
+  # MER-Factory输出路径 - 用于AU模态和emotion_peak采样
+  mer_factory_output: '/home/project/MER-Factory/output'
+  # 推理时使用实时CLIP编码（见 recommended_inference_with_clip_realtime.yaml）
+  use_preextracted_features: True  # 不使用预提取方式使用实时的
+  use_au_clip_realtime: True  # ✅ 启用实时CLIP编码
+  base_root: 'output/log_information/emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz_face_frame_au/inference_resultresults'
   ckpt_root: xxx
   ckpt_name: xxx
   test_epoch: xxx
   test_epochs: xxx-xxx
-  skip_epoch: 1 # only process on epoch%10=0 的部分 ckpt_3
+  skip_epoch: 1
   gpu: 0
-

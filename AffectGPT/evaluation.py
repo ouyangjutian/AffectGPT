@@ -292,7 +292,7 @@ def func_return_scores_one(modelname=None, dataset_candidates='affectgpt'):
     print_per_dataset, avg_score = [], []
     for dataset in process_datasets:
         # process_root = f"output/results-{dataset}/{modelname}"
-        process_root = f"output/log_information/emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz_face_frame_au/face_frame_compare_test/inference_result/results-{dataset}/{modelname}"
+        process_root = f"output/log_information/emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz_face_frame_au/test/inference_result/results-{dataset}/{modelname}"
         ## 计算指标
         score1, score2, score3 = main_zeroshot_scores(process_root, debug=True, test_epochs='', inter_print=False)
         print_per_dataset.extend([score1])
@@ -322,18 +322,18 @@ if __name__ == "__main__":
     #                 'emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz',
     #                 ]:
     for modelname in [
-                    'emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz_face_frame_test',
+                    'emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz_face_frame_au',
                     ]:                    
         for dataset in ["mer2023", "mer2024", "meld", "iemocapfour", "cmumosi", "cmumosei", "sims", "simsv2", "ovmerdplus"]:
             # main_zeroshot_scores(f"output/results-{dataset}/{modelname}")
-            main_zeroshot_scores(f"output/log_information/emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz_face_frame_au/face_frame_compare_test/inference_result/results-{dataset}/{modelname}")
+            main_zeroshot_scores(f"output/log_information/emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz_face_frame_au/test/inference_result/results-{dataset}/{modelname}")
 
     ## step2: 结果汇总展示
     # for modelname in [
     #                 "emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz",
     #                 ]:
     for modelname in [
-                    "emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz_face_frame_test",
+                    "emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz_face_frame_au",
                     ]:                    
         print_per_dataset, avg_score = func_return_scores_one(modelname=modelname)
         print (modelname, " ".join(print_per_dataset))

@@ -189,7 +189,14 @@ class BaseDataset():
             return None
         
         # MER-Factory JSON路径
-        au_json_path = os.path.join(self.mer_factory_output, video_name, f'{video_name}_au_analysis.json')
+        # 路径结构: {mer_factory_output}/{dataset}/{video_name}/{video_name}_au_analysis.json
+        # 例如: /home/project/MER-Factory/output/MER2023/sample_00000905/sample_00000905_au_analysis.json
+        dataset_name = getattr(self, 'dataset', '')
+        if dataset_name:
+            au_json_path = os.path.join(self.mer_factory_output, dataset_name, video_name, f'{video_name}_au_analysis.json')
+        else:
+            # 向后兼容：如果没有dataset属性，直接使用mer_factory_output
+            au_json_path = os.path.join(self.mer_factory_output, video_name, f'{video_name}_au_analysis.json')
         
         if not os.path.exists(au_json_path):
             return None
@@ -233,6 +240,113 @@ class BaseDataset():
             
         except Exception as e:
             print(f"⚠️ 加载AU result失败 {au_json_path}: {e}")
+            return None
+    
+    
+    def _load_au_clip_features_from_json(self, video_name: str) -> Optional[torch.Tensor]:
+        """
+        从MER-Factory JSON加载summary_description并实时CLIP编码
+        用于推理时不加载AU Agent，直接使用预生成的描述
+        
+        Args:
+            video_name: 视频名称（不含扩展名）
+        
+        Returns:
+            CLIP编码后的AU特征 [N, 512]，失败返回None
+        """
+        if not self.mer_factory_output:
+            # 只在第一次提示
+            if not hasattr(BaseDataset, '_warned_no_mer_factory'):
+                print(f"⚠️ [AU CLIP] mer_factory_output未配置")
+                BaseDataset._warned_no_mer_factory = True
+            return None
+        
+        # MER-Factory JSON路径
+        # 路径结构: {mer_factory_output}/{dataset}/{video_name}/{video_name}_au_analysis.json
+        dataset_name = getattr(self, 'dataset', '')
+        if dataset_name:
+            au_json_path = os.path.join(self.mer_factory_output, dataset_name, video_name, f'{video_name}_au_analysis.json')
+        else:
+            # 向后兼容：如果没有dataset属性，直接使用mer_factory_output
+            au_json_path = os.path.join(self.mer_factory_output, video_name, f'{video_name}_au_analysis.json')
+        
+        if not os.path.exists(au_json_path):
+            # 只在前几次提示，避免刷屏
+            if not hasattr(BaseDataset, '_json_not_found_count'):
+                BaseDataset._json_not_found_count = 0
+            if BaseDataset._json_not_found_count < 3:
+                print(f"⚠️ [AU CLIP] JSON文件不存在: {au_json_path}")
+                BaseDataset._json_not_found_count += 1
+                if BaseDataset._json_not_found_count == 3:
+                    print(f"ℹ️ [AU CLIP] 后续缺失文件将不再提示...")
+            return None
+        
+        try:
+            import clip
+            
+            with open(au_json_path, 'r', encoding='utf-8') as f:
+                au_data = json.load(f)
+            
+            # 优先使用summary_description（纯净的assistant描述）
+            summary_description = au_data.get('summary_description', {})
+            
+            # 向后兼容：如果没有summary_description，尝试fine_grained_descriptions
+            if not summary_description:
+                fine_grained = au_data.get('fine_grained_descriptions', {})
+                if not fine_grained:
+                    # 只在前几次提示
+                    if not hasattr(BaseDataset, '_no_description_count'):
+                        BaseDataset._no_description_count = 0
+                    if BaseDataset._no_description_count < 2:
+                        print(f"⚠️ [AU CLIP] JSON中既没有summary_description也没有fine_grained_descriptions")
+                        BaseDataset._no_description_count += 1
+                    return None
+                summary_description = fine_grained
+            
+            if not summary_description:
+                return None
+            
+            # 准备文本列表（按帧号排序）
+            frame_indices = sorted(summary_description.keys(), key=int)
+            texts = [summary_description[idx] for idx in frame_indices]
+            
+            if len(texts) == 0:
+                return None
+            
+            # 加载CLIP模型（如果还没加载）
+            # 使用类级别变量，确保只加载一次
+            if not hasattr(BaseDataset, '_clip_model_loaded'):
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                print(f"📥 [AU CLIP] 加载CLIP模型 (ViT-B/32) 到 {device}...")
+                self._clip_model, _ = clip.load("ViT-B/32", device=device)
+                self._clip_device = device
+                BaseDataset._clip_model_loaded = True
+                print(f"✅ [AU CLIP] CLIP模型加载完成")
+            elif not hasattr(self, '_clip_model') or self._clip_model is None:
+                # 其他实例使用已加载的模型
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                self._clip_model, _ = clip.load("ViT-B/32", device=device)
+                self._clip_device = device
+            
+            # 使用CLIP编码
+            text_tokens = clip.tokenize(texts, truncate=True).to(self._clip_device)
+            
+            with torch.no_grad():
+                text_features = self._clip_model.encode_text(text_tokens)  # [N, 512]
+                # 归一化
+                text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+                # 保持原始float32精度，让模型层自动转换
+                # 这样可以兼容不同的模型精度设置
+            
+            # 不再输出每个样本的成功信息，减少日志
+            return text_features
+            
+        except ImportError:
+            print(f"⚠️ [AU CLIP] CLIP库未安装，无法编码AU描述")
+            print(f"   请运行: pip install git+https://github.com/openai/CLIP.git")
+            return None
+        except Exception as e:
+            print(f"⚠️ 加载并编码AU描述失败 {au_json_path}: {e}")
             return None
 
 
@@ -536,7 +650,7 @@ class BaseDataset():
         # step5: read AU result (从MER-Factory JSON加载)
         au = None
         if 'au' in self.needed_data:
-            # 模式1: 预提取CLIP特征模式（旧方式，兼容性保留）
+            # 模式1: 预提取CLIP特征模式（训练推荐）
             if use_preextracted and preextracted_root and sample_name:
                 au_feat_dir = 'au_CLIP_VITB32_8frms'  # AU特征目录
                 au_feat_path = os.path.join(preextracted_root, au_feat_dir, f'{sample_name}.npy')
@@ -545,9 +659,36 @@ class BaseDataset():
                     au_features = np.load(au_feat_path)  # [T, 512] CLIP text encoder输出
                     au = torch.from_numpy(au_features).float()  # 转换为tensor
                 else:
-                    print(f"⚠️ AU特征文件不存在: {au_feat_path}")
+                    # 只在前几次提示
+                    if not hasattr(BaseDataset, '_au_feat_missing_count'):
+                        BaseDataset._au_feat_missing_count = 0
+                    if BaseDataset._au_feat_missing_count < 2:
+                        print(f"⚠️ AU特征文件不存在: {au_feat_path}")
+                        BaseDataset._au_feat_missing_count += 1
+                        if BaseDataset._au_feat_missing_count == 2:
+                            print(f"ℹ️ [AU] 后续缺失特征文件将不再提示...")
             
-            # 模式2: AU Agent模式（新方式，从MER-Factory JSON加载AU result）
+            # 模式2: 从JSON实时CLIP编码模式（推理推荐，不使用AU Agent）
+            elif getattr(self, 'use_au_clip_realtime', False):
+                # 从video_path或sample_name提取video_name
+                video_name = None
+                if sample_name:
+                    video_name = sample_name
+                elif video_path:
+                    video_name = os.path.splitext(os.path.basename(video_path))[0]
+                
+                if video_name and self.mer_factory_output:
+                    # 从JSON加载summary_description并CLIP编码
+                    au = self._load_au_clip_features_from_json(video_name)
+                    # 失败提示已在_load_au_clip_features_from_json中处理
+                else:
+                    if 'au' in self.needed_data:
+                        # 只在第一次提示
+                        if not hasattr(BaseDataset, '_warned_au_config'):
+                            print(f"⚠️ AU加载需要video_name和mer_factory_output配置")
+                            BaseDataset._warned_au_config = True
+            
+            # 模式3: AU Agent模式（需要加载AU Agent模型，显存占用大）
             else:
                 # 从video_path或sample_name提取video_name
                 video_name = None
@@ -559,11 +700,19 @@ class BaseDataset():
                 if video_name and self.mer_factory_output:
                     # 从MER-Factory JSON加载AU result
                     au = self._load_au_result_from_mer_factory(video_name)
+                    # 失败时只在前几次提示
                     if au is None:
-                        print(f"⚠️ AU result加载失败: {video_name}")
+                        if not hasattr(BaseDataset, '_au_result_fail_count'):
+                            BaseDataset._au_result_fail_count = 0
+                        if BaseDataset._au_result_fail_count < 2:
+                            print(f"⚠️ AU result加载失败: {video_name}")
+                            BaseDataset._au_result_fail_count += 1
                 else:
                     if 'au' in self.needed_data:
-                        print(f"⚠️ AU加载需要video_name和mer_factory_output配置")
+                        # 只在第一次提示
+                        if not hasattr(BaseDataset, '_warned_au_agent_config'):
+                            print(f"⚠️ AU Agent模式需要video_name和mer_factory_output配置")
+                            BaseDataset._warned_au_agent_config = True
         
         sample_data['au'] = au
         

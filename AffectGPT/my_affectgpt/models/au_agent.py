@@ -47,7 +47,6 @@ class AUAgent:
             base_model = AutoModelForCausalLM.from_pretrained(
                 base_model_path,
                 torch_dtype=torch.bfloat16,
-                device_map="auto",
                 trust_remote_code=True
             )
             self.model = PeftModel.from_pretrained(base_model, lora_weights_path)
@@ -58,10 +57,11 @@ class AUAgent:
             self.model = AutoModelForCausalLM.from_pretrained(
                 base_model_path,
                 torch_dtype=torch.bfloat16,
-                device_map="auto",
                 trust_remote_code=True
             )
         
+        # 移动到指定设备
+        self.model = self.model.to(self.device)
         self.model.eval()
         print(f"[AU Agent] Model loaded successfully")
     

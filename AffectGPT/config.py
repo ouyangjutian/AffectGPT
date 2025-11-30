@@ -13,6 +13,7 @@ RESULT_ROOT = os.path.join(AFFECTGPT_ROOT, 'output/results')
 PATH_TO_LLM = {
     # 'Qwen25': '/home/project/Dataset/Emotion/tools/transformer/LLM/Qwen2.5-3B-Instruct'
     'Qwen25': '/home/project/Dataset/Emotion/tools/transformer/LLM/Qwen2.5-7B-Instruct',
+    'Llama2': '/home/project/Dataset/Emotion/tools/transformer/LLM/Llama-2-7b-chat-hf',
 }
 
 PATH_TO_VISUAL = {

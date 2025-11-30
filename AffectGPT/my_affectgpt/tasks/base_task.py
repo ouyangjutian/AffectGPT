@@ -109,6 +109,7 @@ class BaseTask:
         cuda_enabled=False,
         log_freq=50,
         accum_grad_iters=1,
+        visualizer=None,
     ):
         inner_epoch = epoch 
         iters_per_epoch = lr_scheduler.iters_per_epoch
@@ -173,10 +174,24 @@ class BaseTask:
 
             metric_logger.update(loss=loss.item())
             metric_logger.update(lr=optimizer.param_groups[0]["lr"])
+            
+            # Record to visualizer
+            if visualizer is not None:
+                visualizer.add_scalar(
+                    epoch=inner_epoch,
+                    step=i,
+                    lr=optimizer.param_groups[0]["lr"],
+                    loss=loss.item()
+                )
 
         # gather the stats from all processes
         metric_logger.synchronize_between_processes()
         logging.info("Averaged stats: " + str(metric_logger.global_avg()))
+        
+        # Save visualization at end of epoch
+        if visualizer is not None:
+            visualizer.plot_and_save(suffix=f'_epoch{epoch}')
+            visualizer.print_statistics()
         return {
             k: "{:.3f}".format(meter.global_avg)
             for k, meter in metric_logger.meters.items()
