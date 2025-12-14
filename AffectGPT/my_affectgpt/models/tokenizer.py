@@ -40,5 +40,6 @@ def load_tokenizer_from_LLM(model_name):
     tokenizer.add_tokens([config.DEFAULT_FRAME_PATCH_TOKEN], special_tokens=True)
     tokenizer.add_tokens([config.DEFAULT_FACE_PATCH_TOKEN],  special_tokens=True)
     tokenizer.add_tokens([config.DEFAULT_MULTI_PATCH_TOKEN], special_tokens=True)
-    tokenizer.add_tokens([config.DEFAULT_AU_PATCH_TOKEN],    special_tokens=True)
+    # 🎯 Nonverbal信息（AU + Audio emotion）直接作为文本嵌入
+    tokenizer.add_tokens([config.DEFAULT_NONVERBAL_PATCH_TOKEN], special_tokens=True)
     return tokenizer

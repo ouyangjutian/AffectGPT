@@ -1,0 +1,119 @@
+# ================================================================
+# 推理配置 - Frame预提取 + AU实时CLIP编码（最优混合模式）
+# ================================================================
+# 
+# 设计理念：
+# - Frame: 使用预提取的emotion_peak特征（加速600-1200倍）
+# - Face: 实时加载.npy文件
+# - Audio: 实时加载音频文件
+# - AU: 实时CLIP编码（从MER-Factory JSON读取summary_description）
+#
+# 收益：
+# - Frame加载从5-10ms降至0.5ms
+# - AU保持灵活性（无需预提取，节省存储）
+# - 总体推理加速40-60%
+# ================================================================
+
+inference:
+  task: video_text_pretrain
+
+  vis_processor:
+    train:
+      name: "alpro_video_eval"
+      n_frms: 8
+      image_size: 224
+  text_processor:
+    train:
+      name: "blip_caption"
+  img_processor:
+    train:
+      name: "blip2_image_eval"
+      image_size: 224
+
+  # ============================================================
+  # 模态配置（需要在实际运行时替换'xxx'）
+  # ============================================================
+  face_or_frame: 'xxx'  # 示例: 'face_frame_audio_au'
+  
+  # ============================================================
+  # Frame配置 - 预提取emotion_peak特征
+  # ============================================================
+  frame_n_frms: 8
+  frame_sampling: 'emotion_peak'  # 用于构建特征路径
+  
+  # 🎯 关键：启用预提取模式
+  use_preextracted_features: True
+  preextracted_root: './preextracted_features'  # 相对于运行目录
+  
+  # Frame特征路径构建所需
+  visual_encoder: 'CLIP_VIT_LARGE'
+  
+  # ============================================================
+  # AU配置 - 实时CLIP编码
+  # ============================================================
+  # AU实时CLIP编码需要MER-Factory输出
+  mer_factory_output: '/home/project/MER-Factory/output'
+  use_au_clip_realtime: True  # ✅ AU使用实时CLIP编码
+  
+  # ============================================================
+  # 其他配置
+  # ============================================================
+  base_root: 'output/inference_results'
+  ckpt_root: xxx
+  ckpt_name: xxx
+  test_epoch: xxx
+  test_epochs: xxx-xxx
+  skip_epoch: 1
+  gpu: 0
+
+# ================================================================
+# 使用说明
+# ================================================================
+# 
+# 1. 确保已预提取Frame特征：
+#    cd /home/project/AffectGPT/AffectGPT/MER-UniBench
+#    bash run_extract_emotion_peak_batch.sh
+#
+# 2. 验证特征文件存在：
+#    ls preextracted_features/mer2023/frame_CLIP_VIT_LARGE_emotion_peak_8frms/*.npy
+#
+# 3. 运行推理：
+#    python inference_hybird.py \
+#      --cfg-path eval_configs/inference_frame_preextracted_au_realtime.yaml \
+#      --dataset mer2023 \
+#      --ckpt <checkpoint_path>
+#
+# ================================================================
+# 预期行为
+# ================================================================
+#
+# Frame模态：
+#   特征路径: ./preextracted_features/<dataset>/frame_CLIP_VIT_LARGE_emotion_peak_8frms/<sample_name>.npy
+#   加载方式: np.load() → torch.Tensor [8, 768]
+#   性能: ~0.5ms/sample
+#
+# Face模态：
+#   加载方式: 实时load_face() → 从.npy读取人脸帧
+#   性能: ~0.01ms/sample
+#
+# Audio模态：
+#   加载方式: 实时load_audio() → 从音频文件读取
+#   性能: ~10-20ms/sample
+#
+# AU模态：
+#   加载方式: 从MER-Factory JSON读取summary_description → CLIP text编码
+#   JSON路径: {mer_factory_output}/{dataset}/{sample_name}/{sample_name}_au_analysis.json
+#   性能: ~2-3ms/sample
+#
+# ================================================================
+# mer_factory_output的作用
+# ================================================================
+#
+# ❌ 不再用于Frame的emotion_peak采样（已预提取）
+# ✅ 仍然用于AU的实时CLIP编码
+#
+# 如果删除mer_factory_output:
+# - Frame: 不受影响（使用预提取特征）
+# - AU: 会失败或回退到预提取模式
+#
+# ================================================================

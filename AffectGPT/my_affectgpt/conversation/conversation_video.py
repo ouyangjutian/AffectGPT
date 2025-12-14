@@ -165,8 +165,7 @@ class Chat:
         prompt = prompt.replace(config.DEFAULT_MULTI_PATCH_TOKEN, replace_token)
         replace_token = config.DEFAULT_IMAGE_PATCH_TOKEN * self.num_image_query_token
         prompt = prompt.replace(config.DEFAULT_IMAGE_PATCH_TOKEN, replace_token)
-        replace_token = config.DEFAULT_AU_PATCH_TOKEN * self.num_au_query_token
-        prompt = prompt.replace(config.DEFAULT_AU_PATCH_TOKEN, replace_token)
+        # 🎯 Lexical信息直接作为文本嵌入，不需要token替换
         return prompt
    
     def postprocess_audio(self, sample_data):
@@ -182,26 +181,36 @@ class Chat:
         if 'face' not in sample_data or sample_data['face'] is None:
             return None, None
         
-        face = sample_data['face'].unsqueeze(0).to(self.device) # [1, 3, 8, 224, 224]
-        raw_face = sample_data['raw_face'].unsqueeze(0).to(self.device) # [1, 3, 8, 224, 224]
-        face_hiddens, face_llms = self.model.encode_video_merge(face, raw_face)
+        # 检查是否为预提取特征
+        is_preextracted = sample_data.get('face_preextracted', False)
+        
+        face = sample_data['face'].unsqueeze(0).to(self.device)
+        raw_face = sample_data['raw_face'].unsqueeze(0).to(self.device)
+        
+        # 传递is_preextracted标志
+        face_hiddens, face_llms = self.model.encode_video_merge(face, raw_face, is_preextracted=is_preextracted)
         return face_hiddens, face_llms
     
     def postprocess_frame(self, sample_data):
         if 'frame' not in sample_data or sample_data['frame'] is None:
             return None, None
         
-        video = sample_data['frame'].unsqueeze(0).to(self.device) # [1, 3, 8, 224, 224]
-        raw_video = sample_data['raw_frame'].unsqueeze(0).to(self.device) # [1, 3, 8, 224, 224]
-        frame_hiddens, frame_llms = self.model.encode_video_merge(video, raw_video)
+        # 检查是否为预提取特征
+        is_preextracted = sample_data.get('frame_preextracted', False)
+        
+        video = sample_data['frame'].unsqueeze(0).to(self.device)
+        raw_video = sample_data['raw_frame'].unsqueeze(0).to(self.device)
+        
+        # 传递is_preextracted标志
+        frame_hiddens, frame_llms = self.model.encode_video_merge(video, raw_video, is_preextracted=is_preextracted)
         return frame_hiddens, frame_llms
 
     def postprocess_image(self, sample_data):
         if 'image' not in sample_data or sample_data['image'] is None:
             return None, None
         
-        image = sample_data['image'].unsqueeze(0).to(self.device) # [1, 3, 8, 224, 224]
-        raw_image = sample_data['raw_image'].unsqueeze(0).to(self.device) # [1, 3, 8, 224, 224]
+        image = sample_data['image'].unsqueeze(0).to(self.device)
+        raw_image = sample_data['raw_image'].unsqueeze(0).to(self.device)
         image_hiddens, image_llms = self.model.encode_image_merge(image, raw_image)
         return image_hiddens, image_llms
 
@@ -237,7 +246,7 @@ class Chat:
                 au_description = sample_data['au'].get('description', None)
             else:
                 # 回退到预提取特征模式
-                au = sample_data['au'].unsqueeze(0).to(self.device)  # [1, T, 512]
+                au = sample_data['au'].unsqueeze(0).to(self.device)
                 au_hiddens, au_llms = self.model.encode_au_merge(au, is_preextracted=True)
                 return au_hiddens, au_llms
             
@@ -285,7 +294,7 @@ class Chat:
                 return None, None
             
             # 正常处理张量AU特征
-            au = sample_data['au'].unsqueeze(0).to(self.device)  # [1, T, 512]
+            au = sample_data['au'].unsqueeze(0).to(self.device)
             au_hiddens, au_llms = self.model.encode_au_merge(au, is_preextracted=True)
             return au_hiddens, au_llms
 
@@ -300,7 +309,7 @@ class Chat:
         FRAME_PATCH_TOKEN_ID = self.tokenizer.get_vocab()[config.DEFAULT_FRAME_PATCH_TOKEN]
         FACE_PATCH_TOKEN_ID  = self.tokenizer.get_vocab()[config.DEFAULT_FACE_PATCH_TOKEN]
         MULTI_PATCH_TOKEN_ID = self.tokenizer.get_vocab()[config.DEFAULT_MULTI_PATCH_TOKEN]
-        AU_PATCH_TOKEN_ID    = self.tokenizer.get_vocab()[config.DEFAULT_AU_PATCH_TOKEN]
+        # 🎯 Lexical信息直接作为文本嵌入，不需要PATCH_TOKEN
 
         ###### step1: => (input_id, attention_mask) 
         ## replace and add
@@ -324,18 +333,18 @@ class Chat:
         temp_input_id[temp_input_id == AUDIO_PATCH_TOKEN_ID] = 0
         temp_input_id[temp_input_id == MULTI_PATCH_TOKEN_ID] = 0
         temp_input_id[temp_input_id == IMAGE_PATCH_TOKEN_ID] = 0
-        temp_input_id[temp_input_id == AU_PATCH_TOKEN_ID]    = 0
+        # 🎯 AU不再使用token占位符，改为caption文本直接嵌入prompt
         cur_input_embeds = self.model.llama_model.model.model.embed_tokens(temp_input_id)
         cur_input_ids = input_id
         
         # replace <ImageHere>, <AudioHere>, <FrameHere>, <FaceHere> with features
+        # 🎯 AU不再作为特征模态，改为caption文本直接嵌入prompt
         cur_idx = 0
         for (patch_token_id, query_token_number, embeds) in [(FRAME_PATCH_TOKEN_ID, self.num_video_query_token, img_list['frame']),
                                                             (FACE_PATCH_TOKEN_ID,  self.num_video_query_token, img_list['face']),
                                                             (AUDIO_PATCH_TOKEN_ID, self.num_audio_query_token, img_list['audio']),
                                                             (MULTI_PATCH_TOKEN_ID, self.num_multi_query_token, img_list['multi']),
                                                             (IMAGE_PATCH_TOKEN_ID, self.num_image_query_token, img_list['image']),
-                                                            (AU_PATCH_TOKEN_ID,    self.num_au_query_token,    img_list['au']),
                                                             ]:
             if (cur_input_ids == patch_token_id).sum() != 0:
                 assert embeds is not None, f'Some input info is missing.'

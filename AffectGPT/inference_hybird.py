@@ -113,16 +113,16 @@ def get_name2cls(dataset):
     return None
 
 
-# 优先级：outside_user_message > zeroshot > dataset specific
+# 优先级：outside_user_message > zeroshot > use_reasoning > dataset specific
 def get_user_message(dataset_cls, zeroshot, outside_user_message, use_reasoning=True):
     if outside_user_message is not None:
         user_message = outside_user_message
+    elif zeroshot:
+        # 🎯 zeroshot优先：只要求分类，不要求reasoning
+        user_message = dataset_cls.func_get_qa_ovlabel(sample=None, question_only=True)
     elif use_reasoning:
         # 使用reasoning模式：要求模型给出推理过程
         user_message = dataset_cls.func_get_qa_description(sample=None, question_only=True)
-    elif zeroshot:
-        # 只要求分类，不要求reasoning
-        user_message = dataset_cls.func_get_qa_ovlabel(sample=None, question_only=True)
     else:
         # 默认使用reasoning
         user_message = dataset_cls.func_get_qa_description(sample=None, question_only=True)
@@ -220,40 +220,52 @@ if __name__ == "__main__":
             dataset_cls.frame_n_frms = getattr(inference_cfg, 'frame_n_frms', dataset_cls.n_frms)  # Frame帧数，默认与n_frms相同
             dataset_cls.frame_sampling = getattr(inference_cfg, 'frame_sampling', 'uniform')  # Frame采样策略，默认uniform
             
-            # 推理模式配置 - 支持AU实时处理
+            # 推理模式配置 - 支持AU实时处理和Frame预提取
             dataset_cls.use_realtime_extraction = False  # 不使用分布式实时提取
-            dataset_cls.use_preextracted_features = False  # 推理默认使用实时处理
+            
+            # 🎯 从配置文件读取每个模态独立的预提取配置
+            # Frame特征：根据采样策略动态决定
+            if dataset_cls.frame_sampling == 'emotion_peak':
+                dataset_cls.use_preextracted_frame = True   # emotion_peak → 预提取
+                print(f"📥 [Frame] emotion_peak采样 → 使用预提取特征")
+            else:
+                dataset_cls.use_preextracted_frame = False  # uniform等 → 实时处理
+                print(f"🎬 [Frame] {dataset_cls.frame_sampling}采样 → 使用实时处理")
+            
+            dataset_cls.use_preextracted_face = getattr(inference_cfg, 'use_preextracted_face', False)
+            dataset_cls.use_preextracted_audio = getattr(inference_cfg, 'use_preextracted_audio', False)
+            dataset_cls.use_preextracted_au = getattr(inference_cfg, 'use_preextracted_au', False)
+            
+            dataset_cls.preextracted_root = getattr(inference_cfg, 'preextracted_root', './preextracted_features')
+            dataset_cls.visual_encoder = getattr(inference_cfg, 'visual_encoder', 'CLIP_VIT_LARGE')
+            dataset_cls.acoustic_encoder = getattr(inference_cfg, 'acoustic_encoder', 'HUBERT_LARGE')
             
             # 检测是否需要AU模态（注意：不能用'au' in string，会匹配到audio）
             # 使用单词分割来准确检测AU模态
             tokens = face_or_frame.lower().replace('_', ' ').split()
             use_au = 'au' in tokens
             if use_au:
-                # AU实时处理需要MER-Factory输出路径
-                dataset_cls.mer_factory_output = getattr(inference_cfg, 'mer_factory_output', None)
-                # 初始化CLIP模型属性（推理时使用类级别属性，需要手动初始化）
-                dataset_cls._clip_model = None
-                dataset_cls._clip_preprocess = None
+                # 🎯 Nonverbal文本模式：直接从JSON加载文本嵌入prompt
+                dataset_cls.nonverbal_json = getattr(inference_cfg, 'nonverbal_json', None)
+                dataset_cls.use_nonverbal_text = getattr(inference_cfg, 'use_nonverbal_text', False)
+                dataset_cls._nonverbal_data = None  # 懒加载
                 
-                # 设置AU处理模式：使用CLIP实时编码模式（推理推荐）
-                dataset_cls.use_au_clip_realtime = True
-                
-                if not dataset_cls.mer_factory_output:
-                    print(f'⚠️ [INFERENCE] AU模态需要mer_factory_output配置，将回退到预提取模式')
-                    # 回退到预提取模式
-                    dataset_cls.use_preextracted_features = True
-                    dataset_cls.use_au_clip_realtime = False
-                    dataset_cls.preextracted_root = './preextracted_features/' + dataset.lower()
-                    dataset_cls.visual_encoder = 'CLIP_VIT_LARGE'
-                    dataset_cls.acoustic_encoder = 'HUBERT_LARGE'
-                    dataset_cls.clips_per_video = 8
-                    print(f'[INFERENCE] 回退到预提取模式: {dataset_cls.preextracted_root}')
+                if dataset_cls.use_nonverbal_text and dataset_cls.nonverbal_json:
+                    print(f'✅ [INFERENCE] Nonverbal模式: 文本直接嵌入prompt')
+                    print(f'   Nonverbal JSON: {dataset_cls.nonverbal_json}')
                 else:
-                    print(f'[INFERENCE] AU模式: CLIP实时编码模式（从MER-Factory JSON加载summary_description）')
+                    print(f'⚠️ [INFERENCE] Nonverbal未配置，Nonverbal信息将不可用')
             
             print(f'====== Inference Frame Sampling Config ======')
             print(f'Frame frames: {dataset_cls.frame_n_frms}, Frame sampling: {dataset_cls.frame_sampling}')
             print(f'Face frames: {dataset_cls.n_frms}, Face sampling: uniform')
+            
+            # 显示各模态预提取配置状态
+            print(f'====== Preextracted Features Config ======')
+            print(f'Frame: {"✅ Preextracted" if dataset_cls.use_preextracted_frame else "❌ Realtime"}')
+            print(f'Face:  {"✅ Preextracted" if dataset_cls.use_preextracted_face else "❌ Realtime"}')
+            print(f'Audio: {"✅ Preextracted" if dataset_cls.use_preextracted_audio else "❌ Realtime"}')
+            print(f'Nonverbal: {"✅ Text" if (use_au and getattr(dataset_cls, "use_nonverbal_text", False)) else "N/A"}')
 
 
             ## 读取每个数据集的内容
@@ -289,13 +301,12 @@ if __name__ == "__main__":
                     continue
                 # print (sample_data['face'].shape)
 
-                # => img_list
-                audio_llms, frame_llms, face_llms, image_llms, multi_llms, au_llms = None, None, None, None, None, None
+                # => img_list (不再包含AU，AU作为文本直接嵌入prompt)
+                audio_llms, frame_llms, face_llms, image_llms, multi_llms = None, None, None, None, None
                 audio_hiddens, audio_llms = chat.postprocess_audio(sample_data)  
                 frame_hiddens, frame_llms = chat.postprocess_frame(sample_data)
                 face_hiddens,  face_llms  = chat.postprocess_face(sample_data)
                 _,             image_llms = chat.postprocess_image(sample_data)
-                _,             au_llms    = chat.postprocess_au(sample_data)     # 添加AU处理
                 if face_or_frame.startswith('multiface'):
                     _, multi_llms = chat.postprocess_multi(face_hiddens, audio_hiddens)
                 elif face_or_frame.startswith('multiframe'):
@@ -307,12 +318,17 @@ if __name__ == "__main__":
                 img_list['face']  = face_llms
                 img_list['image'] = image_llms
                 img_list['multi'] = multi_llms
-                img_list['au']    = au_llms    # 添加AU到img_list
+                # 🎯 AU不再作为特征，改为caption文本直接嵌入prompt
+
+                # 🎯 获取Nonverbal文本
+                nonverbal_text = None
+                if getattr(dataset_cls, 'use_nonverbal_text', False):
+                    nonverbal_text = dataset_cls.get_nonverbal_text(name)
 
                 # get prompt (use_reasoning=True => reasoning; zeroshot => ov labels; else => dataset specific)
                 use_reasoning = not args.no_reasoning  # 默认启用reasoning
                 user_message = get_user_message(dataset_cls, args.zeroshot, args.outside_user_message, use_reasoning)
-                prompt = dataset_cls.get_prompt_for_multimodal(face_or_frame, subtitle, user_message)
+                prompt = dataset_cls.get_prompt_for_multimodal(face_or_frame, subtitle, user_message, nonverbal_text=nonverbal_text)
                 
                 # => call function
                 response = chat.answer_sample(prompt=prompt, img_list=img_list,

@@ -1,0 +1,120 @@
+## MER2023推理配置 - Frame预提取混合模式
+## 策略：Frame使用预提取的emotion_peak特征，Face/Audio/AU实时处理
+
+model:
+  arch: affectgpt
+  model_type: pretrain_vicuna
+  
+  # ======================== 编码器配置 ========================
+  skip_encoders: False  # ❌ 不跳过编码器（需要实时处理Face/Audio）
+  
+  # ======================== LLM配置 ========================
+  llama_model: "Qwen25"
+  visual_encoder: "CLIP_VIT_LARGE"    # 用于Face实时编码
+  acoustic_encoder: "HUBERT_LARGE"    # 用于Audio实时编码
+  
+  # ======================== Query Token配置 ========================
+  num_audio_query_token: 1
+  num_video_query_token: 1  # Face和Frame共用
+  num_multi_query_token: 1
+  num_image_query_token: 1
+  num_au_query_token: 1
+  
+  # ======================== 融合策略 ========================
+  multi_fusion_type: attention
+  video_fusion_type: attention
+  audio_fusion_type: attention
+  image_fusion_type: mean
+  au_fusion_type: attention
+  
+  max_length: 1024
+  
+  # ======================== Processor配置 ========================
+  vis_processor:
+    eval:
+      name: "alpro_video_eval"
+      n_frms: 8
+      image_size: 224
+  text_processor:
+    eval:
+      name: "blip_caption"
+  img_processor:
+    eval:
+      name: "blip2_image_eval"
+      image_size: 224
+
+# ======================== 数据集配置 ========================
+datasets:
+  mer2023:
+    data_type: video
+    face_or_frame: 'face_frame_audio_au'  # 使用所有模态
+    
+    # 数据路径
+    video_root: '/home/project/Dataset/Emotion/MER2025/dataset/mer2023-dataset-process/video'
+    audio_root: '/home/project/Dataset/Emotion/MER2025/dataset/mer2023-dataset-process/audio'
+    face_root: '/home/project/Dataset/Emotion/MER2025/dataset/mer2023-dataset-process/openface_face'
+    ann_paths: ['/home/project/Dataset/Emotion/MER2025/dataset/mer2023-dataset-process/label-6way.npz']
+    
+    # 🎯 关键配置：混合模式
+    # Frame: 使用预提取的emotion_peak特征
+    frame_n_frms: 8
+    frame_sampling: 'emotion_peak'
+    use_preextracted_features: True  # ← 启用预提取模式
+    preextracted_root: './preextracted_features/mer2023'  # ← Frame特征路径
+    
+    # 编码器配置（用于构建Frame特征路径 + 实时编码Face/Audio）
+    visual_encoder: 'CLIP_VIT_LARGE'
+    acoustic_encoder: 'HUBERT_LARGE'
+    
+    # Face: 实时处理（系统检测到没有face预提取特征会自动回退到实时）
+    # 默认8帧uniform采样
+    
+    # Audio: 实时处理（系统检测到没有audio预提取特征会自动回退到实时）
+    # 默认8 clips
+    
+    # AU: 实时CLIP编码
+    mer_factory_output: '/home/project/MER-Factory/output'
+    use_au_clip_realtime: True  # ← AU使用实时CLIP编码（从JSON读取summary_description）
+
+# ======================== 推理配置 ========================
+inference:
+  task: video_text_pretrain
+  
+  vis_processor:
+    eval:
+      name: "alpro_video_eval"
+      n_frms: 8
+      image_size: 224
+  text_processor:
+    eval:
+      name: "blip_caption"
+  img_processor:
+    eval:
+      name: "blip2_image_eval"
+      image_size: 224
+  
+  # 混合模式配置
+  face_or_frame: 'face_frame_audio_au'
+  
+  # Frame配置（预提取）
+  frame_n_frms: 8
+  frame_sampling: 'emotion_peak'
+  
+  # MER-Factory路径（AU和emotion_peak需要）
+  mer_factory_output: '/home/project/MER-Factory/output'
+  
+  # 🎯 关键：启用预提取但只影响Frame
+  use_preextracted_features: True  # 启用预提取模式
+  use_au_clip_realtime: True       # AU实时CLIP编码
+  
+  # 输出配置
+  base_root: 'output/inference_results/mer2023'
+  gpu: 0
+
+# ======================== 评估数据集配置 ========================
+evaluation_datasets_cfg:
+  mer2023:
+    eval_file_path: '/home/project/Dataset/Emotion/MER2025/dataset/mer2023-dataset-process/label-6way.npz'
+    video_root: '/home/project/Dataset/Emotion/MER2025/dataset/mer2023-dataset-process/video'
+    audio_root: '/home/project/Dataset/Emotion/MER2025/dataset/mer2023-dataset-process/audio'
+    face_root: '/home/project/Dataset/Emotion/MER2025/dataset/mer2023-dataset-process/openface_face'

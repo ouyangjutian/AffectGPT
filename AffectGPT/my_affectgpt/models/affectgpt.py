@@ -81,13 +81,13 @@ class AffectGPT(Blip2Base):
         DEFAULT_FRAME_PATCH_TOKEN = config.DEFAULT_FRAME_PATCH_TOKEN
         DEFAULT_FACE_PATCH_TOKEN  = config.DEFAULT_FACE_PATCH_TOKEN
         DEFAULT_MULTI_PATCH_TOKEN = config.DEFAULT_MULTI_PATCH_TOKEN
-        DEFAULT_AU_PATCH_TOKEN    = config.DEFAULT_AU_PATCH_TOKEN
+        # 🎯 Lexical信息直接作为文本嵌入，不需要PATCH_TOKEN
         self.IMAGE_PATCH_TOKEN_ID = self.llama_tokenizer.get_vocab()[DEFAULT_IMAGE_PATCH_TOKEN]
         self.AUDIO_PATCH_TOKEN_ID = self.llama_tokenizer.get_vocab()[DEFAULT_AUDIO_PATCH_TOKEN]
         self.FRAME_PATCH_TOKEN_ID = self.llama_tokenizer.get_vocab()[DEFAULT_FRAME_PATCH_TOKEN]
         self.FACE_PATCH_TOKEN_ID  = self.llama_tokenizer.get_vocab()[DEFAULT_FACE_PATCH_TOKEN]
         self.MULTI_PATCH_TOKEN_ID = self.llama_tokenizer.get_vocab()[DEFAULT_MULTI_PATCH_TOKEN]
-        self.AU_PATCH_TOKEN_ID    = self.llama_tokenizer.get_vocab()[DEFAULT_AU_PATCH_TOKEN]
+        # 🎯 Lexical信息直接作为文本嵌入，不需要TOKEN_ID
 
         if llama_model_name in ['Baichuan2']:
             self.llama_model = AutoModelForCausalLM.from_pretrained(
@@ -538,71 +538,76 @@ class AffectGPT(Blip2Base):
         if is_preextracted:
             # 预提取特征模式 - 直接使用预提取的特征，跳过视觉编码器
             device = video.device
-            batch_size = video.shape[0]
             
-            # 检查特征维度以确定处理方式
-            if len(video.shape) == 3:
-                # 多时间步特征 [b, t, d] - 需要时序融合 (Face: [b, 8, 768])
-                time_length, hidden_dim = video.shape[1], video.shape[2]
-                store_hidden_state = video  # [b, t, d]
+            # 🔧 使用maybe_autocast统一处理dtype转换（与实时模式保持一致）
+            with self.maybe_autocast():
+                batch_size = video.shape[0]
                 
-                # 只有多时间步特征才需要融合处理
-            elif len(video.shape) == 2:
-                # 单一特征向量 [b, d] - 无需时序融合 (Frame: [b, 768])
-                # 为了保持代码一致性，扩展为 [b, 1, d]
-                video = video.unsqueeze(1)  # [b, d] -> [b, 1, d]
-                time_length, hidden_dim = 1, video.shape[2]
-                store_hidden_state = video  # [b, 1, d]
-            else:
-                raise ValueError(f"Unexpected video shape: {video.shape}")
-            
-            # 🎯 修复：统一处理流程，单帧特征也通过Q-Former处理以保持与实时模式一致
-            if self.video_fusion_type == 'qformer':
-                # 添加位置编码（无论单帧还是多帧）- 使用与实时模式相同的位置编码
-                position_ids = torch.arange(time_length, dtype=torch.long, device=device)
-                position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
-                video_position_embeddings = self.video_frame_position_embedding(position_ids)
-                video_hidden_state = store_hidden_state + video_position_embeddings
-                
-                # Q-Former处理（统一流程）
-                query_tokens = self.video_query_tokens.expand(batch_size, -1, -1)
-                attention_mask = torch.ones(video_hidden_state.size()[:-1], dtype=torch.long, device=device)
-                
-                query_output = self.video_Qformer.bert(
-                    query_embeds=query_tokens,
-                    encoder_hidden_states=video_hidden_state,
-                    encoder_attention_mask=attention_mask,
-                    return_dict=True,
-                )
-                
-                # 投影到LLM空间
-                inputs_llama = self.affectgpt_proj(query_output.last_hidden_state)
-                frame_hiddens, frame_llms = store_hidden_state, inputs_llama
-            
-            elif self.video_fusion_type == 'attention':
-                # 注意力融合处理（统一流程）
-                if time_length == 1:
-                    # 单帧特征直接处理
-                    fused_feat = store_hidden_state.squeeze(1)  # [b, 1, 768] -> [b, 768]
+                # 检查特征维度以确定处理方式
+                if len(video.shape) == 3:
+                    # 多时间步特征 [b, t, d] - 需要时序融合 (Face: [b, 8, 768])
+                    time_length, hidden_dim = video.shape[1], video.shape[2]
+                    store_hidden_state = video  # [b, t, d]
+                    
+                    # 只有多时间步特征才需要融合处理
+                elif len(video.shape) == 2:
+                    # 单一特征向量 [b, d] - 无需时序融合 (Frame: [b, 768])
+                    # 为了保持代码一致性，扩展为 [b, 1, d]
+                    video = video.unsqueeze(1)  # [b, d] -> [b, 1, d]
+                    time_length, hidden_dim = 1, video.shape[2]
+                    store_hidden_state = video  # [b, 1, d]
                 else:
-                    # 多帧特征注意力融合 - 与实时模式保持一致
-                    attention = self.video_attention_mlp(store_hidden_state)  # [b, t, 1]
-                    store_hidden_rearranged = einops.rearrange(store_hidden_state, 'b t h -> b h t', b=batch_size, t=time_length)  # [b, h, t]
-                    fused_feat = torch.matmul(store_hidden_rearranged, attention)  # [b, h, 1]
-                    fused_feat = fused_feat.squeeze(axis=2)  # [b, h]
+                    raise ValueError(f"Unexpected video shape: {video.shape}")
                 
-                inputs_llama = self.affectgpt_proj(fused_feat)  # [b, llmdim]
-                inputs_llama = torch.unsqueeze(inputs_llama, 1).expand(-1, self.num_video_query_token, -1)  # [b, num_video_query_token, llmdim]
-                frame_hiddens, frame_llms = store_hidden_state, inputs_llama
+                # 🎯 修复：统一处理流程，单帧特征也通过Q-Former处理以保持与实时模式一致
+                if self.video_fusion_type == 'qformer':
+                    # 添加位置编码（无论单帧还是多帧）- 使用与实时模式相同的位置编码
+                    position_ids = torch.arange(time_length, dtype=torch.long, device=device)
+                    position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
+                    video_position_embeddings = self.video_frame_position_embedding(position_ids)
+                    video_hidden_state = store_hidden_state + video_position_embeddings
+                    
+                    # Q-Former处理（统一流程）
+                    query_tokens = self.video_query_tokens.expand(batch_size, -1, -1)
+                    attention_mask = torch.ones(video_hidden_state.size()[:-1], dtype=torch.long, device=device)
+                    
+                    query_output = self.video_Qformer.bert(
+                        query_embeds=query_tokens,
+                        encoder_hidden_states=video_hidden_state,
+                        encoder_attention_mask=attention_mask,
+                        return_dict=True,
+                    )
+                    
+                    # 投影到LLM空间
+                    inputs_llama = self.affectgpt_proj(query_output.last_hidden_state)
+                    frame_hiddens, frame_llms = store_hidden_state, inputs_llama
                 
-            elif self.video_fusion_type == 'mean':
-                # 均值融合处理预提取特征
-                mean_features = torch.mean(store_hidden_state, dim=1)  # [batch, hidden_dim]
+                elif self.video_fusion_type == 'attention':
+                    # 注意力融合处理（统一流程）
+                    if time_length == 1:
+                        # 单帧特征直接处理
+                        fused_feat = store_hidden_state.squeeze(1)  # [b, 1, 768] -> [b, 768]
+                    else:
+                        # 多帧特征注意力融合 - 与实时模式保持一致
+                        attention = self.video_attention_mlp(store_hidden_state)  # [b, t, 1]
+                        store_hidden_rearranged = einops.rearrange(store_hidden_state, 'b t h -> b h t', b=batch_size, t=time_length)  # [b, h, t]
+                        fused_feat = torch.matmul(store_hidden_rearranged, attention)  # [b, h, 1]
+                        fused_feat = fused_feat.squeeze(axis=2)  # [b, h]
+                    
+                    inputs_llama = self.affectgpt_proj(fused_feat)  # [b, llmdim]
+                    inputs_llama = torch.unsqueeze(inputs_llama, 1).expand(-1, self.num_video_query_token, -1)  # [b, num_video_query_token, llmdim]
+                    frame_hiddens, frame_llms = store_hidden_state, inputs_llama
+                    
+                elif self.video_fusion_type == 'mean':
+                    # 均值融合处理预提取特征
+                    mean_features = torch.mean(store_hidden_state, dim=1)  # [batch, hidden_dim]
+                    
+                    # 投影到LLM空间
+                    inputs_llama = self.affectgpt_proj(mean_features)  # [b, llmdim]
+                    inputs_llama = torch.unsqueeze(inputs_llama, 1).expand(-1, self.num_video_query_token, -1)  # [b, num_video_query_token, llmdim]
+                    frame_hiddens, frame_llms = store_hidden_state, inputs_llama
                 
-                # 投影到LLM空间
-                inputs_llama = self.affectgpt_proj(mean_features)  # [b, llmdim]
-                inputs_llama = torch.unsqueeze(inputs_llama, 1).expand(-1, self.num_video_query_token, -1)  # [b, num_video_query_token, llmdim]
-                frame_hiddens, frame_llms = store_hidden_state, inputs_llama
+            return frame_hiddens, frame_llms
                 
         else:
             # 实时处理模式 - 原有逻辑
@@ -956,19 +961,19 @@ class AffectGPT(Blip2Base):
         temp_input_ids[temp_input_ids == self.AUDIO_PATCH_TOKEN_ID] = 0
         temp_input_ids[temp_input_ids == self.MULTI_PATCH_TOKEN_ID] = 0
         temp_input_ids[temp_input_ids == self.IMAGE_PATCH_TOKEN_ID] = 0
-        temp_input_ids[temp_input_ids == self.AU_PATCH_TOKEN_ID] = 0
+        # 🎯 Lexical信息直接作为文本嵌入，不需要特殊处理
         temp_input_embedding = self.llama_model.model.model.embed_tokens(temp_input_ids) # 嵌套 LoRA 之后，会在 model 外面再包一层
 
         ## replace <ImageHere>; <MultiHere>; <FrameHere>; <FaceHere>; <AudioHere>
         cur_idx = 0
         new_input_embeds = []
         for cur_input_ids, cur_input_embeds in zip(input_ids, temp_input_embedding):
+            # 🎯 Lexical信息直接作为文本嵌入，不需要特征替换
             for (patch_token_id, query_token_number, embeds) in [(self.FRAME_PATCH_TOKEN_ID, self.num_video_query_token, frame_llms),
                                                                 (self.FACE_PATCH_TOKEN_ID,  self.num_video_query_token, face_llms),
                                                                 (self.AUDIO_PATCH_TOKEN_ID, self.num_audio_query_token, audio_llms),
                                                                 (self.MULTI_PATCH_TOKEN_ID, self.num_multi_query_token, multi_llms),
                                                                 (self.IMAGE_PATCH_TOKEN_ID, self.num_image_query_token, image_llms),
-                                                                (self.AU_PATCH_TOKEN_ID, self.num_au_query_token, au_llms),
                                                                 ]:
                 if (cur_input_ids == patch_token_id).sum() != 0:
                     if embeds is None:
@@ -979,7 +984,6 @@ class AffectGPT(Blip2Base):
                             self.AUDIO_PATCH_TOKEN_ID: "AUDIO",
                             self.MULTI_PATCH_TOKEN_ID: "MULTI",
                             self.IMAGE_PATCH_TOKEN_ID: "IMAGE",
-                            self.AU_PATCH_TOKEN_ID: "AU"
                         }
                         token_name = token_names.get(patch_token_id, f"UNKNOWN({patch_token_id})")
                         print(f"❌ {token_name} embeds is None for sample {cur_idx}")

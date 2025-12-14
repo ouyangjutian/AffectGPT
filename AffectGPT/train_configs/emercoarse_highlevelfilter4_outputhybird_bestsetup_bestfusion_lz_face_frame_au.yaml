@@ -1,6 +1,4 @@
-## 推荐训练配置 - 使用预提取AU特征（不使用AU Agent）
-## 优点：训练快3-5倍，显存占用小（15GB vs 30GB）
-
+## w Pre-fusion + Attention
 model:
   arch: affectgpt
   model_type: pretrain_vicuna
@@ -14,7 +12,7 @@ model:
   # skip_encoders: False # ❌ 推理
   preextracted_visual_dim: 768   # CLIP_VIT_LARGE输出维度
   preextracted_acoustic_dim: 1024  # HUBERT_LARGE输出维度
-  preextracted_au_dim: 512       # CLIP text encoder AU特征维度
+  # preextracted_au_dim: 512       # ❗ 已废弃 - Nonverbal现在直接作为文本嵌入prompt
 
   # ======================== 冻结策略 ========================
   # Fusion配置
@@ -22,8 +20,8 @@ model:
   frozen_video_Qformer: False
   frozen_audio_Qformer: False
   frozen_audio_proj: False
-  frozen_au_Qformer: False     # AU Q-Former冻结参数
-  frozen_au_proj: False        # AU投影层冻结参数
+  # frozen_au_Qformer: False     # ❗ 已废弃 - Nonverbal不再使用Q-Former
+  # frozen_au_proj: False        # ❗ 已废弃 - Nonverbal不再使用投影层
   frozen_multi_Qformer: False
   frozen_multi_llama_proj: False
   frozen_llm: False
@@ -33,7 +31,7 @@ model:
   video_fusion_type: attention # qformer(default)/mean/attention
   audio_fusion_type: attention # qformer(default)/mean/attention
   image_fusion_type: mean       # token(default)/mean
-  au_fusion_type: attention     # qformer/mean/attention
+  # au_fusion_type: attention     # ❗ 已废弃 - Nonverbal直接作为文本嵌入
 
   # ============================= Checkpoint ============================
   # AffectGPT checkpoint
@@ -50,7 +48,7 @@ model:
   num_video_query_token: 1
   num_multi_query_token: 1
   num_image_query_token: 1
-  num_au_query_token: 1
+  # num_au_query_token: 1  # ❗ 已废弃 - Nonverbal不需要query token
 
   max_length: 1024
   # ======================== Processor配置 ========================
@@ -76,14 +74,20 @@ datasets:
     
     # Frame采样配置
     frame_n_frms: 8
-    frame_sampling: 'emotion_peak'  # 或 'emotion_peak'（AU智能采样）
+    frame_sampling: 'uniform'  # 或 'emotion_peak'（AU智能采样）
     
     # MER-Factory输出路径 - 用于AU模态和emotion_peak采样
-    mer_factory_output: '/home/project/MER-Factory/output'
+    # mer_factory_output: '/home/project/MER-Factory/output'
     
-    # 🎯 关键配置：使用预提取特征
-    use_preextracted_features: True  # ✅ 启用预提取特征（Frame/Face/Audio/AU）
-    # use_preextracted_features: False # ❌ 推理时不使用预提取特征（仅AU特征）
+    # 🎯 预提取特征配置 - 训练时全部启用
+    use_preextracted_frame: True   # ✅ Frame预提取
+    use_preextracted_face: True    # ✅ Face预提取
+    use_preextracted_audio: True   # ✅ Audio预提取
+    
+    # 🎯 Nonverbal配置 - 直接作为文本输入LLM（不需要CLIP编码）
+    nonverbal_json: '/home/project/AffectGPT/AffectGPT/MER-UniBench/MER_UniBench_grained.json'
+    use_nonverbal_text: True  # ✅ Nonverbal使用文本直接输入
+    
     preextracted_root: './preextracted_features/mercaptionplus'
     
     # 编码器配置（用于构建特征路径）
@@ -156,14 +160,21 @@ inference:
   
   # 推理配置
   frame_n_frms: 8
-  frame_sampling: 'emotion_peak'
+  frame_sampling: 'uniform'       # 🎯 采样策略: 'uniform'(实时) 或 'emotion_peak'(预提取)
   
-  # MER-Factory输出路径 - 用于AU模态和emotion_peak采样
-  mer_factory_output: '/home/project/MER-Factory/output'
-  # 推理时使用实时CLIP编码（见 recommended_inference_with_clip_realtime.yaml）
-  use_preextracted_features: True  # 不使用预提取方式使用实时的
-  use_au_clip_realtime: True  # ✅ 启用实时CLIP编码
-  base_root: 'output/log_information/emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz_face_frame_au/inference_resultresults'
+  # 🎯 预提取特征配置 - 每个模态独立控制
+  # use_preextracted_frame: 根据frame_sampling自动决定（emotion_peak→True, 其他→False）
+  use_preextracted_face: False   # ❌ Face实时加载.npy
+  use_preextracted_audio: False  # ❌ Audio实时加载
+  
+  preextracted_root: './preextracted_features'  # 预提取特征根目录
+  visual_encoder: 'CLIP_VIT_LARGE'  # 用于构建特征路径
+  acoustic_encoder: 'HUBERT_LARGE'  # 用于构建特征路径
+  
+  # 🎯 Nonverbal配置 - 直接作为文本输入LLM（不需要CLIP编码）
+  nonverbal_json: '/home/project/AffectGPT/AffectGPT/MER-UniBench/MER_UniBench_grained.json'
+  use_nonverbal_text: True  # ✅ Nonverbal使用文本直接输入
+  base_root: 'output/log_information/emercoarse_highlevelfilter4_outputhybird_bestsetup_bestfusion_lz_face_frame_au/uniform/inference_result/results'
   ckpt_root: xxx
   ckpt_name: xxx
   test_epoch: xxx
